@@ -509,7 +509,7 @@
       { key: "brand_fonts_in_tools", label: "Hub font inside the studios", type: "bool", help: "Use the hub's font (Inter) for headings and buttons inside the tools." },
     ] },
     { title: "Network", lead: "Changes here need a restart of the hub.", fields: [
-      { key: "bind_host", label: "Listen on", type: "select", options: [["127.0.0.1", "This PC only"], ["0.0.0.0", "Everyone on my network"]], help: "Sharing on the network also needs a firewall rule for ports 7900-7906 (see README)." },
+      { key: "bind_host", label: "Listen on", type: "select", options: [["127.0.0.1", "This PC only"], ["0.0.0.0", "Everyone on my network"]], help: "Sharing on the network also needs a firewall rule for ports 7900-7905 (see README)." },
       { key: "hub_port", label: "Hub port", type: "number", step: 1, min: 1024, max: 65535 },
       { key: "open_browser", label: "Open the browser on start", type: "bool" },
       { key: "stop_tools_on_exit", label: "Stop all studios when the hub closes", type: "bool" },

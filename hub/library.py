@@ -2,7 +2,7 @@
 
 Reads the tools' own output folders and indexes directly (no tool has to be running): Image
 Studio's JSON sidecars, Voice Studio's history.json, Lumen's jobs.sqlite, Music Studio's song
-folders, and the plain output trees of Forge and ComfyUI (prompts read from the PNG metadata). Files are served through the hub with HTTP range support so audio and video seek.
+folders, and Forge's plain output tree (prompts read from the PNG metadata). Files are served through the hub with HTTP range support so audio and video seek.
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ AUDIO_EXT = {".flac", ".wav", ".mp3"}
 
 def _png_header(path: Path) -> tuple[int | None, int | None, dict[str, str]]:
     """Width, height and the text chunks (tEXt / iTXt / zTXt) of a PNG, read chunk by chunk and stopping
-    at the first IDAT - Forge and ComfyUI write their metadata before the pixel data, and decoding a
+    at the first IDAT - Forge writes its metadata before the pixel data, and decoding a
     1024x1024 image just to read a prompt is what made the first library scan take half a minute."""
     import struct
     import zlib
@@ -214,7 +214,7 @@ class Library:
             sig = _dir_signature(outputs / "history.json", 0)
         elif tid == "video":
             sig = _dir_signature(t.tool_dir / "data" / "jobs.sqlite", 0) + _dir_signature(outputs, 0)
-        elif tid in ("forge", "comfy"):
+        elif tid == "forge":
             sig = _dir_signature(outputs, 2)
         else:
             sig = _dir_signature(outputs, 1)
@@ -227,7 +227,7 @@ class Library:
             return cached[2]
         try:
             items = {"image": self._scan_image, "tts": self._scan_tts, "video": self._scan_video,
-                     "music": self._scan_music, "forge": self._scan_forge, "comfy": self._scan_comfy}[tid](t.tool_dir, outputs)
+                     "music": self._scan_music, "forge": self._scan_forge}[tid](t.tool_dir, outputs)
         except Exception:
             items = cached[2] if cached else []
         self._cache[tid] = (sig, now, items)
@@ -389,33 +389,6 @@ class Library:
                 "model": model or "Forge", "created": file.stat().st_mtime, "url": f"/media/forge/{rel}",
                 "download": f"/media/forge/{rel}?download=1",
                 "thumb": f"/api/thumb?tool=forge&path={rel}" if kind == "image" else None,
-                "width": w, "height": h, "size": file.stat().st_size, "folder": str(file.parent),
-            })
-        return items
-
-    def _scan_comfy(self, tool_dir: Path, outputs: Path) -> list[dict[str, Any]]:
-        items: list[dict[str, Any]] = []
-        for file in _newest_files(outputs, IMAGE_EXT | VIDEO_EXT | AUDIO_EXT):
-            rel = file.relative_to(outputs).as_posix()
-            ext = file.suffix.lower()
-            kind = "video" if ext in VIDEO_EXT else ("audio" if ext in AUDIO_EXT else "image")
-            w, h, meta = _image_info(file, ext == ".png") if kind == "image" else (None, None, {})
-            prompt = ""
-            if meta.get("prompt"):
-                try:
-                    graph = json.loads(meta["prompt"])
-                    texts = [str(n.get("inputs", {}).get("text", "")) for n in graph.values()
-                             if isinstance(n, dict) and "text" in (n.get("inputs") or {})]
-                    texts = [t.strip() for t in texts if t.strip()]
-                    prompt = max(texts, key=len) if texts else ""
-                except Exception:
-                    prompt = ""
-            sub = " · ".join(x for x in (file.parent.name if file.parent != outputs else "", f"{w}×{h}" if w and h else "") if x)
-            items.append({
-                "id": f"comfy:{rel}", "tool": "comfy", "kind": kind, "title": prompt[:300] or file.stem, "subtitle": sub,
-                "model": "ComfyUI", "created": file.stat().st_mtime, "url": f"/media/comfy/{rel}",
-                "download": f"/media/comfy/{rel}?download=1",
-                "thumb": f"/api/thumb?tool=comfy&path={rel}" if kind == "image" else None,
                 "width": w, "height": h, "size": file.stat().st_size, "folder": str(file.parent),
             })
         return items

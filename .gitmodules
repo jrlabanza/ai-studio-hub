@@ -18,6 +18,3 @@
 	path = forge
 	url = https://github.com/jrlabanza/jrlabanza-image-generator-core.git
 	branch = main
-[submodule "comfyui"]
-	path = comfyui
-	url = https://github.com/Comfy-Org/ComfyUI.git

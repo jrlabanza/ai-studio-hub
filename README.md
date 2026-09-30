@@ -1,6 +1,6 @@
 # AI Studio Hub
 
-One home for your local AI tools — image, voice, video, music, Forge and ComfyUI — with a GPU **auto-loader** that
+One home for your local AI tools — image, voice, video, music and Forge — with a GPU **auto-loader** that
 keeps an 8 GB card (or any card) working instead of running out of memory.
 
 The hub starts each tool on demand in its own environment, puts a themed entrance in front of it, shares the GPU
@@ -13,13 +13,10 @@ between them, and gathers everything they make into one library. The tools thems
 | 03 | **Video Studio** | Lumen Video Studio — LTX-2.5 and MiniMax H3 video with audio | [jrlabanza/video-generator](https://github.com/jrlabanza/video-generator) |
 | 04 | **Music Studio** | Music Gen Studio — YuE2 songs from lyrics with an editable score | [jrlabanza/music-generator](https://github.com/jrlabanza/music-generator) |
 | 05 | **Forge Studio** *(optional)* | Forge Neo — the Jrlabanza Image Generator build of Stable Diffusion WebUI Forge | [jrlabanza/jrlabanza-image-generator-core](https://github.com/jrlabanza/jrlabanza-image-generator-core) |
-| 06 | **Node Studio** *(optional)* | ComfyUI — node graphs (Linux packaging: [jrlabanza/comfyui-linux](https://github.com/jrlabanza/comfyui-linux) as `linux/`) | [Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI) |
 
-All six are git submodules of this repository, pinned to tested versions. Forge and ComfyUI are *optional*: the Forge
-repository is private (collaborators only), and ComfyUI's Linux packaging lives in a second repository,
-[jrlabanza/comfyui-linux](https://github.com/jrlabanza/comfyui-linux), cloned into `comfyui/linux`. A clone that
-cannot fetch one of them still runs with the studios it has - the hub leaves a studio out of the shell when its folder
-is empty, and also picks up a checkout that sits *next to* the hub folder instead.
+All five are git submodules of this repository, pinned to tested versions. Forge is *optional*: its repository is
+private (collaborators only), and a clone that cannot fetch it still runs with the four others - the hub leaves a
+studio out of the shell when its folder is empty, and also picks up a checkout that sits *next to* the hub folder.
 
 Runs on **Windows** (each tool in its own Python environment) and on **Linux** (each tool in its own Docker
 container, the `linux/` packaging every studio ships).
@@ -51,12 +48,10 @@ the hub's theme applied - here Image Studio, with the GPU handed to it:*
 
    Already cloned without them? `git submodule update --init --recursive` fetches them (`--recursive` also brings the
    upstream YuE repository that Music Studio embeds). Without access to the private Forge repository, initialise the
-   others by name: `git submodule update --init --recursive "Image gen" "qwen tts" video-gen Yue2 comfyui`. For Node
-   Studio also add its Linux packaging: `git clone https://github.com/jrlabanza/comfyui-linux comfyui/linux`.
+   others by name: `git submodule update --init --recursive "Image gen" "qwen tts" video-gen Yue2`.
 2. Set each studio up once with its own script: `Image gen\Initialize.bat`, `qwen tts\initialize.bat`,
    `video-gen\initialize.bat`, `Yue2\initialize.bat`, `forge\initialize.bat`. They create their own Python environments
-   and download their models. For ComfyUI on Windows use the portable build (`ComfyUI_windows_portable`, see
-   `comfyui/linux/README.md`) and point Settings → Studios → Folder at it.
+   and download their models.
 3. Double-click **`Initialize AI Studio Hub.bat`** once. It creates a small `.venv` for the hub (FastAPI, uvicorn, httpx,
    websockets, psutil, Pillow — no PyTorch, no models).
 4. Double-click **`Start AI Studio Hub.bat`**. The browser opens `http://127.0.0.1:7900`. Close the window to stop the hub
@@ -79,7 +74,6 @@ layout used with [jrlabanza/ai-launcher](https://github.com/jrlabanza/ai-launche
   video-generator/      Video Studio      (ai/video)
   yue2/                 Music Studio      (ai/yue2)
   forge/                Forge Studio      (ai/forge)
-  comfyui/              Node Studio       (ai/comfyui)   + jrlabanza/comfyui-linux as comfyui/linux
 ```
 
 1. Set the studios up once with their own `linux/initialize.sh` (driver, Docker + NVIDIA Container Toolkit, image,
@@ -99,7 +93,7 @@ How the container path differs from the tools' own `run.sh`:
 * The hub's own additions to a studio's compose file live in `hub/compose/<service>.yml` and are merged with
   `-f`: Image Studio starts with `--no-autoload` and Voice Studio without `--preload`, so no model touches the GPU
   before the hub hands it over. The studios' `linux/` packaging is never edited.
-* Container ports are fixed by the compose files (7864, 7861, 8765, 7863, 7860, 8188); the entrances on 7901–7906 and
+* Container ports are fixed by the compose files (7864, 7861, 8765, 7863, 7860); the entrances on 7901–7905 and
   the hub on 7900 are the same as on Windows.
 * A container started by hand (`ai run <tool>`) is taken over rather than duplicated; a container stopped by hand
   (`ai stop <tool>`) is shown as stopped, not as an error. Chatterbox comes up with Voice Studio when its image exists
@@ -110,12 +104,11 @@ How the container path differs from the tools' own `run.sh`:
 
 ## How the auto-loader works
 
-Every request that needs the GPU (Generate, Enhance, Load model, Start engine, Sing, Transcribe, a ComfyUI prompt,
-a Forge txt2img …) passes through the hub first. Before forwarding it the hub:
+Every request that needs the GPU (Generate, Enhance, Load model, Start engine, Sing, Transcribe, a Forge txt2img …) passes through the hub first. Before forwarding it the hub:
 
 1. **waits** if another studio is still rendering — no job is ever interrupted, your request is queued and starts by itself;
 2. **unloads** the other studios' models (Qwen-Image, Qwen3-TTS + Whisper + Chatterbox, the ComfyUI engine, Forge's
-   checkpoint, ComfyUI's models);
+   checkpoint);
 3. measures the free VRAM with `nvidia-smi`; if the card is still too full it **stops** the other studios' processes (an idle
    process still pins a few hundred MB of CUDA context — that matters on 8 GB) and asks a local **Ollama** to drop its models;
 4. hands the GPU over and lets the studio load what it needs (queueing a model load ahead of the request where the tool
@@ -138,8 +131,8 @@ Also built in:
 ## The shell
 
 * **Home** — the card's live VRAM, a sparkline, the studios with their model state, running jobs with progress, and the recent activity.
-* **Studios** — each tool runs inside the shell (Alt+1 … Alt+6) with the hub's theme applied to its UI (Settings → Appearance to turn that off). Their own top-bar branding is replaced by the shell's; everything else is the original UI.
-* **Library** — every image, clip, video and song the studios have ever made, in one searchable grid with a viewer, downloads and "open folder". It reads the tools' output folders directly (Forge's and ComfyUI's prompts come from the PNG metadata), so it works even when a studio is off.
+* **Studios** — each tool runs inside the shell (Alt+1 … Alt+5) with the hub's theme applied to its UI (Settings → Appearance to turn that off). Their own top-bar branding is replaced by the shell's; everything else is the original UI.
+* **Library** — every image, clip, video and song the studios have ever made, in one searchable grid with a viewer, downloads and "open folder". It reads the tools' output folders directly (Forge's prompts come from the PNG metadata), so it works even when a studio is off.
 * **Settings** — GPU policy and timers, appearance, network, per-studio folders / ports / autostart / pinning, and a check-up of what is installed.
 * Light and dark themes; the theme is applied inside the studios too.
 
@@ -161,7 +154,6 @@ hub writes inside the tool folders.
 | Video Studio entrance | 7903 | proxies the backend on 8765 (ComfyUI engine 8188 stays internal) |
 | Music Studio entrance | 7904 | proxies the backend on 7860 (Windows) / 7863 (Linux container) |
 | Forge Studio entrance | 7905 | proxies the backend on 7866 (Windows) / 7860 (Linux container) |
-| Node Studio entrance | 7906 | proxies the backend on 8188 |
 
 If a port is busy the hub moves to the next free one and prints the addresses in its window. A studio you started by hand
 with its own launcher is adopted instead of started twice. Starting the hub twice opens the running copy.
@@ -172,10 +164,10 @@ Settings → Network → *Everyone on my network* (or `--host 0.0.0.0`), restart
 Windows, from an **administrator** PowerShell:
 
 ```powershell
-New-NetFirewallRule -DisplayName "AI Studio Hub" -Direction Inbound -Protocol TCP -LocalPort 7900-7906 -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "AI Studio Hub" -Direction Inbound -Protocol TCP -LocalPort 7900-7905 -Action Allow -Profile Any
 ```
 
-Linux with ufw: `sudo ufw allow 7900:7906/tcp`. Anyone on the network can then use every studio without a password
+Linux with ufw: `sudo ufw allow 7900:7905/tcp`. Anyone on the network can then use every studio without a password
 (the tools see the hub as a local visitor), so keep it to networks you trust.
 
 ## How it is built

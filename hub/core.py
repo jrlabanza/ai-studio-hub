@@ -23,7 +23,7 @@ class Hub:
         self.bus = EventBus()
         self.gpu = GpuMonitor(interval=2.0)
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(10.0), trust_env=False)
-        # The four studios of this repository are always there; optional ones (Forge, ComfyUI) only when found.
+        # The four core studios are always there; the optional one (Forge) only when found.
         self.order: list[str] = [tid for tid in TOOL_ORDER if tool_present(tid)]
         self.absent: list[str] = [tid for tid in TOOL_ORDER if tid not in self.order]
         self.tools: dict[str, ManagedProcess] = {tid: ManagedProcess(TOOLS[tid], self) for tid in self.order}

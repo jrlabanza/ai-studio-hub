@@ -43,14 +43,12 @@ DEFAULT_TOOLS: dict[str, dict[str, Any]] = {
               "port": 8765, "proxy_port": 7903, "autostart": False, "pinned": False},
     "music": {"enabled": True, "dir": "Yue2", "aliases": ["music-generator", "yue2", "Music Studio"],
               "port": 7860 if IS_WINDOWS else 7863, "proxy_port": 7904, "autostart": False, "pinned": False},
-    # Optional studios: not part of this repository (no submodule). They appear only when a checkout is found
-    # next to (or inside) the hub folder, or when Settings → Studios → Folder points at one.
+    # Optional studio: appears only when a checkout is found (a clone without access to its private
+    # repository still runs the four above).
     "forge": {"enabled": True, "dir": "forge", "aliases": ["jrlabanza-image-generator-core", "Forge", "Forge Neo",
                                                           "stable-diffusion-webui-forge"],
               "port": 7866 if IS_WINDOWS else 7860, "proxy_port": 7905, "autostart": False, "pinned": False,
               "optional": True},
-    "comfy": {"enabled": True, "dir": "comfyui", "aliases": ["ComfyUI", "ComfyUI_windows_portable", "comfy"],
-              "port": 8188, "proxy_port": 7906, "autostart": False, "pinned": False, "optional": True},
 }
 TOOL_KEYS = {"enabled", "dir", "port", "helper_port", "proxy_port", "autostart", "pinned", "chatterbox"}
 
