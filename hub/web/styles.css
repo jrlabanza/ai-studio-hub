@@ -104,6 +104,11 @@ body.collapsed #btnCollapse { flex: none; }
 /* The status block gives way before the studio's name does: meters go first on narrower windows. */
 .top-status { flex: 0 1 auto; min-width: 0; }
 @media (max-width: 1560px) { #meterRam { display: none; } }
+/* The job chip must never push the actions off the bar: it truncates instead. */
+.chip.jobs { max-width: 240px; overflow: hidden; }
+.chip.jobs > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1500px) { .chip.jobs { max-width: 170px; } }
+
 @media (max-width: 1360px) { #meterVram { display: none; } }
 .top-sub { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw; }
 .top-num { font-weight: 300; font-size: 28px; color: var(--tool, var(--teal)); line-height: 1; }

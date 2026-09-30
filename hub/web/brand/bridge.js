@@ -15,8 +15,11 @@
     html.setAttribute("data-hub-theme", t);
     if (cfg.fonts) html.setAttribute("data-hub-fonts", "1"); else html.removeAttribute("data-hub-fonts");
     if (!cfg.restyle) { applying = false; return; }
-    if (cfg.tool === "image" || cfg.tool === "tts" || cfg.tool === "music") html.setAttribute("data-theme", t);
-    if (cfg.tool === "video") { html.classList.toggle("dark", t === "dark"); html.classList.toggle("light", t !== "dark"); }
+    // Every studio implements the shared design language natively and honours html[data-theme];
+    // the React and Gradio apps also read a "dark" class, so both are kept in step.
+    html.setAttribute("data-theme", t);
+    html.classList.toggle("dark", t === "dark"); html.classList.toggle("light", t !== "dark");
+    if (document.body) { document.body.classList.toggle("dark", t === "dark"); document.body.classList.toggle("light", t !== "dark"); }
     html.style.colorScheme = t;
     var meta = document.querySelector('meta[name="color-scheme"]');
     if (meta) meta.setAttribute("content", t);
@@ -31,8 +34,7 @@
     new MutationObserver(function () {
       if (applying) return;
       var want = theme;
-      if ((cfg.tool === "image" || cfg.tool === "tts" || cfg.tool === "music") && html.getAttribute("data-theme") !== want) applyTheme(want);
-      if (cfg.tool === "video" && html.classList.contains("dark") !== (want === "dark")) applyTheme(want);
+      if (html.getAttribute("data-theme") !== want || html.classList.contains("dark") !== (want === "dark")) applyTheme(want);
     }).observe(html, { attributes: true, attributeFilter: ["data-theme", "class"] });
   }
 

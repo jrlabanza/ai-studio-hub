@@ -505,8 +505,8 @@
     ] },
     { title: "Appearance", lead: "The theme of the shell and, if you like, of the studios inside it.", fields: [
       { key: "theme", label: "Theme", type: "select", options: [["light", "Light"], ["dark", "Dark"]] },
-      { key: "restyle_tools", label: "Apply the hub theme inside the studios", type: "bool", help: "Turn off to see each tool's original look. Takes effect when a studio is reloaded." },
-      { key: "brand_fonts_in_tools", label: "Hub font inside the studios", type: "bool", help: "Use the hub's font (Inter) for headings and buttons inside the tools." },
+      { key: "restyle_tools", label: "Keep the studios' theme in step with the shell", type: "bool", help: "Light or dark follows the shell inside every studio. Turn off to let each studio keep its own setting. Takes effect when a studio is reloaded." },
+      { key: "brand_fonts_in_tools", label: "Hub font inside the studios", type: "bool", help: "Use the hub's font (Inter) for headings and buttons inside older studio versions that do not ship it themselves." },
     ] },
     { title: "Network", lead: "Changes here need a restart of the hub.", fields: [
       { key: "bind_host", label: "Listen on", type: "select", options: [["127.0.0.1", "This PC only"], ["0.0.0.0", "Everyone on my network"]], help: "Sharing on the network also needs a firewall rule for ports 7900-7905 (see README)." },

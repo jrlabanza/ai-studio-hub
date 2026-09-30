@@ -1,28 +1,4 @@
-/* Hub theme for Image Studio (Qwen Image Studio). Maps the tool's own CSS variables. */
-html:root[data-hub-theme="light"] {
-  --bg: #F4F6F9; --bg-2: #EEF1F5; --panel: #FFFFFF; --panel-2: #F7F8FA; --panel-3: #EEF1F5;
-  --line: rgba(7, 25, 58, .10); --line-2: rgba(7, 25, 58, .20);
-  --text: #07193A; --text-2: #2B3B5C; --muted: #6B7A93;
-  --accent: #1C4991; --accent-2: #34C6A3; --accent-grad: linear-gradient(135deg, #1C4991 0%, #2C6BC4 60%, #34C6A3 100%);
-  --ok: #11A311; --warn: #C99400; --danger: #D6453D;
-  --shadow: 0 10px 30px rgba(7, 25, 58, .10);
-  --checker: repeating-conic-gradient(#e2e6ee 0 25%, #f8fafc 0 50%) 0 0 / 22px 22px;
-}
-html:root[data-hub-theme="dark"] {
-  --bg: #061027; --bg-2: #081633; --panel: #0B1B3B; --panel-2: #10244D; --panel-3: #162D5C;
-  --line: rgba(255, 255, 255, .09); --line-2: rgba(255, 255, 255, .18);
-  --text: #F2F5FA; --text-2: #C9D4E6; --muted: #8FA1BF;
-  --accent: #3F6FD1; --accent-2: #34C6A3; --accent-grad: linear-gradient(135deg, #3F6FD1 0%, #34C6A3 100%);
-  --ok: #3ACB5A; --warn: #FFC23B; --danger: #F07171;
-  --shadow: 0 10px 30px rgba(0, 0, 0, .35);
-  --checker: repeating-conic-gradient(#1a2a4d 0 25%, #10203f 0 50%) 0 0 / 22px 22px;
-}
-html:root[data-hub-theme] .btn.primary { box-shadow: 0 6px 18px rgba(28, 73, 145, .35); }
-html:root[data-hub-theme] .btn.accent { border-color: rgba(28, 73, 145, .45); color: var(--accent); background: rgba(28, 73, 145, .10); }
-html:root[data-hub-theme="dark"] .btn.accent { color: #9dbcf5; border-color: rgba(63, 111, 209, .55); background: rgba(63, 111, 209, .16); }
-html:root[data-hub-theme] .btn.danger { color: var(--danger); border-color: rgba(214, 69, 61, .5); background: rgba(214, 69, 61, .10); }
-html:root[data-hub-theme] .pill.state-ready .dot { box-shadow: 0 0 0 3px rgba(17, 163, 17, .2); }
-html:root[data-hub-theme] .pill.state-loading .dot { box-shadow: 0 0 0 3px rgba(52, 198, 163, .25); background: #34C6A3; }
-/* The shell already shows the studio's name: hide the tool's own brand block, keep its status and actions. */
-html:root[data-hub-theme] .topbar .brand { display: none !important; }
+/* Hub rules for Image Studio. The studio implements the shared design language natively (see docs/design.md)
+   and honours html[data-theme]; the hub only hides what the shell already shows. */
+html:root[data-hub-theme] .brand { display: none !important; }
 html:root[data-hub-theme] .topbar { border-bottom-color: var(--line); }

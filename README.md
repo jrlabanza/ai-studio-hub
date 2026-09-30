@@ -131,7 +131,7 @@ Also built in:
 ## The shell
 
 * **Home** — the card's live VRAM, a sparkline, the studios with their model state, running jobs with progress, and the recent activity.
-* **Studios** — each tool runs inside the shell (Alt+1 … Alt+5) with the hub's theme applied to its UI (Settings → Appearance to turn that off). Their own top-bar branding is replaced by the shell's; everything else is the original UI.
+* **Studios** — each tool runs inside the shell (Alt+1 … Alt+5). Every studio implements the same design language natively (see [docs/design.md](docs/design.md)), so it looks the same on its own and inside the hub; the shell only keeps the studio's light/dark theme in step with its own (Settings → Appearance) and hides the studio's own top-bar branding, since the shell shows its name.
 * **Library** — every image, clip, video and song the studios have ever made, in one searchable grid with a viewer, downloads and "open folder". It reads the tools' output folders directly (Forge's prompts come from the PNG metadata), so it works even when a studio is off.
 * **Settings** — GPU policy and timers, appearance, network, per-studio folders / ports / autostart / pinning, and a check-up of what is installed.
 * Light and dark themes; the theme is applied inside the studios too.
