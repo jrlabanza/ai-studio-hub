@@ -1,8 +1,8 @@
 /* AI Studio Hub - shell styles. Palette: deep blue #0B1F45, blue #1C4991, teal #34C6A3, green #11A311,
    yellow #FFC23B, light grey #E5E5E4. Type: Inter (UI), Fraunces (display accent), both via Google Fonts with
    system fallbacks so the shell also works offline. */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400&display=swap");
 
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400&display=swap");
 
 :root {
   --ink: #0B1F45; --blue: #1C4991; --teal: #34C6A3; --green: #11A311; --yellow: #FFC23B; --grey: #E5E5E4;
