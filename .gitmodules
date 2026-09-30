@@ -1,0 +1,16 @@
+[submodule "Image gen"]
+	path = Image gen
+	url = https://github.com/jrlabanza/qwen-image-studio.git
+	branch = main
+[submodule "qwen tts"]
+	path = qwen tts
+	url = https://github.com/jrlabanza/tts-generator.git
+	branch = main
+[submodule "video-gen"]
+	path = video-gen
+	url = https://github.com/jrlabanza/video-generator.git
+	branch = main
+[submodule "Yue2"]
+	path = Yue2
+	url = https://github.com/jrlabanza/music-generator.git
+	branch = main

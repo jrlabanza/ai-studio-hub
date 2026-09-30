@@ -15,24 +15,36 @@ between them, and gathers everything they make into one library. The tools thems
 
 ## Quick start (Windows)
 
-1. Set up the four tools once with their own scripts (`Initialize.bat` / `initialize.bat` in each folder). Put the
-   folders either **inside** this repository's folder or **next to** it, with these names: `Image gen`, `qwen tts`,
-   `video-gen`, `Yue2` (or point the hub at any folder in Settings → Studios → Folder).
-2. Double-click **`Initialize AI Studio Hub.bat`** once. It creates a small `.venv` for the hub (FastAPI, uvicorn, httpx,
+1. Clone the hub **with the four studios** (they are git submodules, pinned to tested versions):
+
+   ```
+   git clone --recurse-submodules https://github.com/jrlabanza/ai-studio-hub.git
+   ```
+
+   Already cloned without them? `git submodule update --init --recursive` fetches them (`--recursive` also brings the
+   upstream YuE repository that Music Studio embeds).
+2. Set each studio up once with its own script: `Image gen\Initialize.bat`, `qwen tts\initialize.bat`,
+   `video-gen\initialize.bat`, `Yue2\initialize.bat`. They create their own Python environments and download their models.
+3. Double-click **`Initialize AI Studio Hub.bat`** once. It creates a small `.venv` for the hub (FastAPI, uvicorn, httpx,
    websockets, psutil, Pillow — no PyTorch, no models).
-3. Double-click **`Start AI Studio Hub.bat`**. The browser opens `http://127.0.0.1:7900`. Close the window to stop the hub
+4. Double-click **`Start AI Studio Hub.bat`**. The browser opens `http://127.0.0.1:7900`. Close the window to stop the hub
    *and* every studio it started.
 
 Nothing starts until you need it: opening a studio starts it, pressing Generate loads its model.
 
 ```
-your folder\
-  ai-studio-hub\      this repository  (or the four tool folders inside it)
-  Image gen\
-  qwen tts\
-  video-gen\
-  Yue2\
+ai-studio-hub\
+  Start AI Studio Hub.bat
+  hub\
+  Image gen\      submodule -> jrlabanza/qwen-image-studio
+  qwen tts\       submodule -> jrlabanza/tts-generator
+  video-gen\      submodule -> jrlabanza/video-generator
+  Yue2\           submodule -> jrlabanza/music-generator  (which embeds multimodal-art-projection/YuE)
 ```
+
+Already have the tools installed somewhere else? The hub also looks for the same folder names **next to** its own folder,
+prefers whichever copy is set up, and any folder can be chosen in Settings → Studios → Folder. To move a studio to a
+newer version later: `git submodule update --remote "Image gen"`, test, then commit the new pointer.
 
 ## How the auto-loader works
 

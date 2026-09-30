@@ -131,13 +131,19 @@ def tool_cfg(tool_id: str) -> dict[str, Any]:
 
 
 def tool_dir(tool_id: str) -> Path:
-    """Where a tool lives: an absolute path from Settings, or a folder inside this hub's folder, or
-    (so the hub can be cloned *next to* the tools) the same folder name beside the hub's folder."""
+    """Where a tool lives: an absolute path from Settings, or a folder inside this hub's folder (the
+    git-submodule layout), or the same folder name beside the hub's folder (the sibling layout).
+
+    When both exist - e.g. an un-set-up submodule checkout inside plus an installed copy next to the
+    hub - the copy that is actually set up (has its Python environment) wins.
+    """
     cfg = tool_cfg(tool_id)
     p = Path(cfg.get("dir") or DEFAULT_TOOLS[tool_id]["dir"])
     if p.is_absolute():
         return p
-    for base in (ROOT, ROOT.parent):
-        if (base / p).is_dir():
-            return base / p
-    return ROOT / p
+    candidates = [base / p for base in (ROOT, ROOT.parent) if (base / p).is_dir()]
+    for cand in candidates:
+        if any((cand / rel).is_file() for rel in ("./.venv/Scripts/python.exe", "./.venv/bin/python",
+                                                    "YuE/.venv/Scripts/python.exe", "YuE/.venv/bin/python")):
+            return cand
+    return candidates[0] if candidates else ROOT / p

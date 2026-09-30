@@ -4,8 +4,5 @@ data/
 __pycache__/
 *.pyc
 
-# tool folders, if you keep them inside this folder (they are their own repositories)
-Image gen/
-qwen tts/
-video-gen/
-Yue2/
+# The four studios are git submodules (Image gen, qwen tts, video-gen, Yue2); their own .gitignore
+# files keep environments, models and outputs out of git.
