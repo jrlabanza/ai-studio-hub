@@ -121,6 +121,9 @@ class ManagedProcess:
         self._lock = asyncio.Lock()
         self._log_fh = None
         self._compose_profiles: tuple[str, ...] = ()
+        # Set when the orchestrator stopped this studio to free VRAM for another one: until then its
+        # entrance does not start it again on its own (a tab left open keeps polling), only the user does.
+        self.held_until = 0.0
 
     # ------------------------------------------------------------------ properties
     @property
@@ -146,6 +149,14 @@ class ManagedProcess:
     @property
     def running(self) -> bool:
         return self.state == "running"
+
+    @property
+    def held(self) -> bool:
+        return self.state in ("stopped", "error") and time.time() < self.held_until
+
+    def held_by(self) -> str:
+        owner = self.hub.orchestrator.owner
+        return self.hub.tools[owner].spec.name if owner and owner in self.hub.tools and owner != self.id else "another studio"
 
     @property
     def is_docker(self) -> bool:
@@ -187,6 +198,7 @@ class ManagedProcess:
             "pinned": bool(self.cfg.get("pinned")), "autostart": bool(self.cfg.get("autostart")),
             "last_exit_code": self.last_exit_code, "helpers": [h.name for h, _ in self.helper_procs],
             "supports_unload": self.spec.supports_unload,
+            "held": self.held, "held_by": self.held_by() if self.held else "",
         }
 
     def tail(self, n: int = 200) -> list[str]:
@@ -247,6 +259,7 @@ class ManagedProcess:
                 self._publish()
                 return False
             self.backend = self.spec.backend(tdir)
+            self.held_until = 0.0
             self.state, self.error = "starting", ""
             self._publish()
             cfg = self.cfg

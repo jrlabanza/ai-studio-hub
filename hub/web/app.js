@@ -226,7 +226,7 @@
     if (t.state === "starting") return ["starting", "Starting"];
     if (t.state === "stopping") return ["starting", "Stopping"];
     if (t.state === "error") return ["error", "Error"];
-    if (t.state !== "running") return ["off", t.installed ? "Off" : "Not set up"];
+    if (t.state !== "running") return ["off", t.held ? "Paused" : (t.installed ? "Off" : "Not set up")];
     const s = t.summary;
     if (s.busy) return ["busy", "Working"];
     if (s.state === "loading") return ["loading", "Loading"];
@@ -315,7 +315,7 @@
       const pill = $(".tool-pill", card); pill.className = `pill tool-pill ${tone}`; pill.textContent = label;
       $(".tool-tag", card).textContent = t.tagline;
       const s = t.summary;
-      $(".sum-label", card).textContent = t.state === "running" ? s.label : (t.state === "starting" ? "Starting up…" : t.state === "error" ? "Stopped with an error" : (t.installed ? "Not running - opens in a few seconds" : "Not set up"));
+      $(".sum-label", card).textContent = t.state === "running" ? s.label : (t.state === "starting" ? "Starting up…" : t.state === "error" ? "Stopped with an error" : t.held ? `Paused - ${t.held_by} is using the GPU` : (t.installed ? "Not running - opens in a few seconds" : "Not set up"));
       $(".sum-detail", card).textContent = t.state === "running" ? (s.detail || "") : (t.state === "error" ? (t.error || "").split("\n")[0] : "");
       const job = $(".job", card);
       if (s.busy && s.job) {

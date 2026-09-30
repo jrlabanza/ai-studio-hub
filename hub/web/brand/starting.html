@@ -50,14 +50,19 @@ button { font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 9px;
       var log = document.getElementById("log"); log.scrollTop = log.scrollHeight;
       if (d.theme) document.documentElement.setAttribute("data-hub-theme", d.theme);
       if (d.state === "running") { document.getElementById("status").textContent = "Ready - opening…"; setTimeout(function () { location.reload(); }, 400); return; }
-      if (d.state === "error" || (!d.installed)) {
+      if (d.held && d.state === "stopped") {
+        document.getElementById("spin").style.display = "none";
+        document.getElementById("status").textContent = "Paused - " + (d.held_by || "another studio") + " is using the GPU";
+        var e2 = document.getElementById("err"); e2.hidden = false; e2.style.color = ""; e2.textContent = "The hub stopped this studio to free the graphics card. It starts again when you open it.";
+        var rb = document.getElementById("retry"); rb.hidden = false; rb.textContent = "Start anyway";
+      } else if (d.state === "error" || (!d.installed)) {
         document.getElementById("spin").style.display = "none";
         document.getElementById("status").textContent = d.installed ? "Could not start" : "Not set up yet";
         var err = document.getElementById("err"); err.hidden = false; err.textContent = d.installed ? (d.error || "") : (d.install_note || "");
         document.getElementById("retry").hidden = !d.installed;
       } else {
         document.getElementById("status").textContent = d.state === "starting" ? "Starting the studio…" : "Waking up…";
-        if (d.state === "stopped") fetch("/__hub/start", { method: "POST" });
+        if (d.state === "stopped" && !d.held) fetch("/__hub/start", { method: "POST" });
       }
       timer = setTimeout(poll, 1500);
     }).catch(function () { timer = setTimeout(poll, 2000); });
@@ -65,7 +70,7 @@ button { font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 9px;
   document.getElementById("retry").onclick = function () {
     document.getElementById("err").hidden = true; document.getElementById("retry").hidden = true;
     document.getElementById("spin").style.display = ""; t0 = Date.now();
-    fetch("/__hub/start", { method: "POST" }).then(function () { clearTimeout(timer); poll(); });
+    fetch("/__hub/start?force=1", { method: "POST" }).then(function () { clearTimeout(timer); poll(); });
   };
   poll();
   window.addEventListener("message", function (e) { if (e.data && e.data.type === "hub:theme") document.documentElement.setAttribute("data-hub-theme", e.data.theme); });

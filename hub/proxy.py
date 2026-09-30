@@ -94,9 +94,12 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
         accept = request.headers.get("accept", "")
         return request.method == "GET" and "text/html" in accept
 
-    def ensure_started() -> None:
-        if tool.state in ("stopped", "error") and tool.enabled:
-            asyncio.get_running_loop().create_task(tool.start())
+    def ensure_started(force: bool = False) -> None:
+        if tool.state not in ("stopped", "error") or not tool.enabled:
+            return
+        if tool.held and not force and hub.orchestrator.focus != tool.id:
+            return          # stopped to free the GPU; a tab polling in the background must not undo that
+        asyncio.get_running_loop().create_task(tool.start())
 
     # ------------------------------------------------------------------ hub-local routes
     @app.get("/__hub/state")
@@ -109,10 +112,9 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
         return JSONResponse(d, headers={"Cache-Control": "no-store"})
 
     @app.post("/__hub/start")
-    async def hub_start() -> JSONResponse:
-        if tool.state in ("stopped", "error"):
-            asyncio.get_running_loop().create_task(tool.start())
-        return JSONResponse({"state": tool.state})
+    async def hub_start(force: int = 0) -> JSONResponse:
+        ensure_started(force=bool(force))
+        return JSONResponse({"state": tool.state, "held": tool.held})
 
     @app.get("/__hub/bridge.js")
     async def bridge_js() -> Response:

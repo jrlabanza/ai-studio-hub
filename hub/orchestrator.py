@@ -269,9 +269,15 @@ class Orchestrator:
                 # The desktop, browsers and the driver always keep ~1 GB: never demand more than can exist.
                 need_mb = min(need_mb, gpu.total_mb - 1200)
 
+                # What each running studio holds right now (per process, from nvidia-smi). The memory the
+                # claiming studio already holds - its own loaded model - counts towards what it needs, so a
+                # second Generate does not read as "the card is full" and start stopping the other studios.
+                usage = await self._usage_by_tool()
+                own_mb = usage.get(tool_id, 0)
+
                 async def enough() -> bool:
                     info = await self.hub.gpu.refresh()
-                    return info.free_mb >= need_mb
+                    return info.free_mb + own_mb >= need_mb
 
                 others = [t for t in self.tools.values() if t.id != tool_id and t.running]
                 mine = self.summary(tool_id)
@@ -293,17 +299,28 @@ class Orchestrator:
 
                 # 3. Still too full? Idle processes pin CUDA contexts - stop them, least recently used first.
                 #    (Processes that never touch CUDA, like Lumen's backend with its engine off, are skipped.)
+                #    Only worth it when what they hold would actually close the gap: stopping two idle
+                #    containers to win 300 MB against a 3 GB shortfall just costs a minute and helps nobody.
                 if not await enough():
+                    usage = await self._usage_by_tool()
+                    own_mb = usage.get(tool_id, own_mb)
                     def holds_context(t: "ManagedProcess") -> bool:
-                        return t.spec.idle_context_mb > 0 or self.summary(t.id).loaded
+                        return usage.get(t.id, 0) > 0 or t.spec.idle_context_mb > 0 or self.summary(t.id).loaded
                     order = sorted((t for t in others if holds_context(t) and not t.external),
                                    key=lambda t: (bool(t.cfg.get("pinned")), self.last_activity.get(t.id, 0.0)))
-                    for t in order:
-                        if await enough():
-                            break
-                        await t.stop(f"{tool.spec.name} needs the VRAM")
-                        actions.append(f"stopped {t.spec.name}")
-                        await self._settle(6.0)
+                    reclaimable = sum(usage.get(t.id, t.spec.idle_context_mb) for t in order)
+                    shortfall = need_mb - (self.hub.gpu.latest.free_mb + own_mb)
+                    if reclaimable >= shortfall:
+                        for t in order:
+                            if await enough():
+                                break
+                            await t.stop(f"{tool.spec.name} needs the VRAM")
+                            t.held_until = time.time() + 10 * 60
+                            actions.append(f"stopped {t.spec.name}")
+                            await self._settle(6.0)
+                    else:
+                        self._record(tool_id, f"{tool.spec.name} would like {shortfall / 1024:.1f} GB more than is free; "
+                                     f"stopping the other studios would only give back {reclaimable / 1024:.1f} GB, so they stay up", "warn")
 
                 # 4. A local Ollama (lyric writing in Music Studio) keeps models resident for minutes.
                 if not await enough() and s.release_ollama:
@@ -340,6 +357,20 @@ class Orchestrator:
         if done:
             self._record(tool_id, f"{tool.spec.name}: {', '.join(done)} ahead of the request")
         return done
+
+    async def _usage_by_tool(self) -> dict[str, int]:
+        """VRAM in MB held by each running studio, from nvidia-smi's per-process list."""
+        info = await self.hub.gpu.refresh(with_processes=True)
+        out: dict[str, int] = {}
+        loop = asyncio.get_running_loop()
+        for p in info.processes:
+            if not p.get("used_mb"):
+                continue
+            for t in self.tools.values():
+                if t.running and await loop.run_in_executor(None, t.owns_pid, p["pid"]):
+                    out[t.id] = out.get(t.id, 0) + int(p["used_mb"])
+                    break
+        return out
 
     def _set_owner(self, tool_id: str) -> None:
         if self.owner != tool_id:
@@ -402,6 +433,8 @@ class Orchestrator:
 
     async def set_focus(self, tool_id: str | None) -> None:
         self.focus, self.focus_ts = tool_id, time.time()
+        if tool_id in self.tools:
+            self.tools[tool_id].held_until = 0.0     # the user came back to it: it may start again
         if tool_id in self.tools and load_settings().prepare_on_switch:
             if self._prepare_task and not self._prepare_task.done():
                 self._prepare_task.cancel()
