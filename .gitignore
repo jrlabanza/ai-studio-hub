@@ -4,10 +4,5 @@ data/
 __pycache__/
 *.pyc
 
-# The four studios are git submodules (Image gen, qwen tts, video-gen, Yue2); their own .gitignore
+# The studios are git submodules (Image gen, qwen tts, video-gen, Yue2, forge, comfyui); their own .gitignore
 # files keep environments, models and outputs out of git.
-
-# Forge and ComfyUI are optional studios found next to (or inside) the hub folder, never part of this repo.
-forge/
-comfyui/
-ComfyUI/

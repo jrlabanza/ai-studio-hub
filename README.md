@@ -15,9 +15,11 @@ between them, and gathers everything they make into one library. The tools thems
 | 05 | **Forge Studio** *(optional)* | Forge Neo — the Jrlabanza Image Generator build of Stable Diffusion WebUI Forge | [jrlabanza/jrlabanza-image-generator-core](https://github.com/jrlabanza/jrlabanza-image-generator-core) |
 | 06 | **Node Studio** *(optional)* | ComfyUI — node graphs (Linux packaging: [jrlabanza/comfyui-linux](https://github.com/jrlabanza/comfyui-linux) as `linux/`) | [Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI) |
 
-The first four are part of this repository (git submodules). Forge and ComfyUI are **not**: the hub simply picks them
-up when a checkout named `forge` / `comfyui` (or their repository names) sits next to the hub folder, and leaves them
-out of the shell otherwise.
+All six are git submodules of this repository, pinned to tested versions. Forge and ComfyUI are *optional*: the Forge
+repository is private (collaborators only), and ComfyUI's Linux packaging lives in a second repository,
+[jrlabanza/comfyui-linux](https://github.com/jrlabanza/comfyui-linux), cloned into `comfyui/linux`. A clone that
+cannot fetch one of them still runs with the studios it has - the hub leaves a studio out of the shell when its folder
+is empty, and also picks up a checkout that sits *next to* the hub folder instead.
 
 Runs on **Windows** (each tool in its own Python environment) and on **Linux** (each tool in its own Docker
 container, the `linux/` packaging every studio ships).
@@ -48,11 +50,13 @@ the hub's theme applied - here Image Studio, with the GPU handed to it:*
    ```
 
    Already cloned without them? `git submodule update --init --recursive` fetches them (`--recursive` also brings the
-   upstream YuE repository that Music Studio embeds).
+   upstream YuE repository that Music Studio embeds). Without access to the private Forge repository, initialise the
+   others by name: `git submodule update --init --recursive "Image gen" "qwen tts" video-gen Yue2 comfyui`. For Node
+   Studio also add its Linux packaging: `git clone https://github.com/jrlabanza/comfyui-linux comfyui/linux`.
 2. Set each studio up once with its own script: `Image gen\Initialize.bat`, `qwen tts\initialize.bat`,
-   `video-gen\initialize.bat`, `Yue2\initialize.bat`. They create their own Python environments and download their
-   models. (Optional: a Forge checkout next to the hub folder, or the ComfyUI portable build pointed at from
-   Settings → Studios → Folder, adds Forge Studio and Node Studio.)
+   `video-gen\initialize.bat`, `Yue2\initialize.bat`, `forge\initialize.bat`. They create their own Python environments
+   and download their models. For ComfyUI on Windows use the portable build (`ComfyUI_windows_portable`, see
+   `comfyui/linux/README.md`) and point Settings → Studios → Folder at it.
 3. Double-click **`Initialize AI Studio Hub.bat`** once. It creates a small `.venv` for the hub (FastAPI, uvicorn, httpx,
    websockets, psutil, Pillow — no PyTorch, no models).
 4. Double-click **`Start AI Studio Hub.bat`**. The browser opens `http://127.0.0.1:7900`. Close the window to stop the hub
@@ -74,8 +78,8 @@ layout used with [jrlabanza/ai-launcher](https://github.com/jrlabanza/ai-launche
   qwen-tts/             Voice Studio      (ai/qwen-tts + ai/chatterbox)
   video-generator/      Video Studio      (ai/video)
   yue2/                 Music Studio      (ai/yue2)
-  forge/                Forge Studio      (ai/forge)     optional
-  comfyui/              Node Studio       (ai/comfyui)   optional
+  forge/                Forge Studio      (ai/forge)
+  comfyui/              Node Studio       (ai/comfyui)   + jrlabanza/comfyui-linux as comfyui/linux
 ```
 
 1. Set the studios up once with their own `linux/initialize.sh` (driver, Docker + NVIDIA Container Toolkit, image,
