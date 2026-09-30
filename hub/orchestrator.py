@@ -486,7 +486,8 @@ class Orchestrator:
             summ = self.summary(t.id)
             if summ.busy or self._lock.locked():
                 continue
-            last = self.last_activity.get(t.id) or t.started_at or now
+            # A restart counts as activity: never judge a studio by what it did before it was last stopped.
+            last = max(self.last_activity.get(t.id, 0.0), t.started_at) or now
             idle_min = (now - last) / 60
             if unload_min > 0 and summ.loaded and idle_min >= unload_min and t.spec.supports_unload:
                 await self.unload_models(t, f"idle for {int(idle_min)} min")

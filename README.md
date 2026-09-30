@@ -25,10 +25,13 @@ container, the `linux/` packaging every studio ships).
 
 ![Home - the card, the studios and what the hub did](docs/screenshots/home.png)
 
-*Home: live VRAM, the studios with their model state, and the activity feed. Every studio opens inside the shell with
-the hub's theme applied - here Image Studio, with the GPU handed to it:*
+*Home: live VRAM, the studios with their model state, and the activity feed. Every studio shares the same design
+language ([docs/design.md](docs/design.md)) and opens inside the shell - here Image Studio with the GPU handed to it,
+and Music Studio:*
 
 ![Image Studio inside the shell](docs/screenshots/studio.png)
+
+![Music Studio inside the shell](docs/screenshots/studio-music.png)
 
 *Library: everything the studios have made, in one grid (filtered to videos here):*
 
