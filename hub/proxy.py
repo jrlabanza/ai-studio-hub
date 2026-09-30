@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from . import __version__
 from .config import BRAND_DIR, WEB_DIR, load_settings
+from .files import ranged_file
 
 if TYPE_CHECKING:
     from .core import Hub
@@ -120,6 +121,15 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
     async def bridge_js() -> Response:
         return FileResponse(BRAND_DIR / "bridge.js", media_type="application/javascript",
                             headers={"Cache-Control": "no-cache"})
+
+    @app.get("/__hub/media/{src_tool}/{path:path}")
+    async def hub_media(src_tool: str, path: str, request: Request) -> Response:
+        """A file from another studio's output folder, on this studio's own origin: how "Send to" hands an
+        output over without any download or upload by the user (the page fetches it as a same-origin URL)."""
+        p = hub.library.media_path(src_tool, path)
+        if not p:
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        return ranged_file(request, p)
 
     @app.get("/__hub/brand/{path:path}")
     async def brand_asset(path: str) -> Response:

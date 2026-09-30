@@ -7,7 +7,7 @@
 
   const S = {
     state: null, view: "home", tool: null, theme: document.documentElement.dataset.theme || "light",
-    frames: {}, frameGen: {}, frameWasRunning: {}, events: [], unread: 0, es: null, connected: false,
+    frames: {}, frameGen: {}, frameWasRunning: {}, frameReady: {}, events: [], unread: 0, es: null, connected: false, handoff: null,
     lib: { tool: "", q: "", items: [], offset: 0, total: 0, loading: false, counts: {} }, libTimer: null,
     settingsDirty: false, recentLoadedAt: 0, lastToast: { text: "", at: 0 }, focusSent: null,
   };
@@ -133,6 +133,7 @@
       f.src = proxyUrl(t);
       frames.appendChild(f);
       S.frames[id] = f;
+      S.frameReady[id] = false;
       S.frameWasRunning[id] = t.state === "running";
       S.frameGen[id] = t.generation;
       if (t.state === "stopped" || t.state === "error") api(`/api/tools/${id}/start`, { method: "POST" }).catch(() => {});
@@ -149,6 +150,7 @@
       if (t.state === "running") {
         if (S.frameWasRunning[id] && S.frameGen[id] !== t.generation) {
           // The tool was restarted since this frame loaded: load the fresh copy.
+          S.frameReady[id] = false;
           f.src = proxyUrl(t);
         }
         S.frameGen[id] = t.generation;
@@ -482,14 +484,59 @@
       <dl class="kv">${kv}</dl>
       ${versions ? `<div class="eyebrow">Versions</div><div class="versions"><button class="btn small" data-src="${esc(it.url)}">original</button>${versions}</div>` : ""}
       ${it.lyrics ? `<div class="eyebrow">Lyrics</div><div class="lyrics">${esc(it.lyrics)}</div>` : ""}
-      <div class="viewer-actions"><a class="btn primary" href="${esc(it.download)}">Download</a>
+      <div class="viewer-actions"><button class="btn primary" id="viewerSend" title="Hand this file to another studio - no download, no upload">Send to…</button>
+        <a class="btn" href="${esc(it.download)}">Download</a>
         <button class="btn" id="viewerFolder">Open folder</button>
         <a class="btn ghost" href="#/tool/${esc(it.tool)}" id="viewerOpenTool">Open ${esc(nameOf(it.tool))}</a></div>
     </div></div>`);
     $("#viewerFolder").onclick = () => api("/api/library/open", { method: "POST", body: { folder: it.folder } }).catch((e) => toast(e.message, "error"));
     $("#viewerOpenTool").onclick = closeModal;
+    $("#viewerSend").onclick = (e) => { e.stopPropagation(); openSendMenu($("#viewerSend"), it); };
     $$("#modalBody .versions button").forEach((b) => { b.onclick = () => { const a = $("#viewerAudio"); if (a) { a.src = b.dataset.src; a.play(); } }; });
   }
+
+  // ------------------------------------------------------------------ "Send to": hand an output to another studio
+  const kindOf = (it) => ({ song: "audio" }[it.kind] || it.kind);
+  async function handoffTargets() {
+    if (!S.handoff) { try { S.handoff = (await api("/api/handoff/targets")).targets; } catch (e) { S.handoff = []; } }
+    return S.handoff;
+  }
+  async function openSendMenu(anchor, it) {
+    closeMenu();
+    const kind = kindOf(it);
+    const targets = (await handoffTargets()).map((t) => ({ ...t, slots: t.slots.filter((s) => s.kinds.includes(kind)) })).filter((t) => t.slots.length);
+    const m = document.createElement("div");
+    m.className = "menu send-menu"; m.id = "ctxMenu";
+    if (!targets.length) { const p = document.createElement("div"); p.className = "menu-note"; p.textContent = `No studio takes a ${kind} yet.`; m.appendChild(p); }
+    for (const t of targets) {
+      const h = document.createElement("div"); h.className = "menu-head"; h.style.setProperty("--tool", t.color); h.innerHTML = `<span class="menu-num">${esc(t.number)}</span>${esc(t.name)}`; m.appendChild(h);
+      for (const s of t.slots) { const b = document.createElement("button"); b.textContent = s.label; b.onclick = () => { closeMenu(); sendTo(it, t.tool, s); }; m.appendChild(b); }
+    }
+    document.body.appendChild(m);
+    const r = anchor.getBoundingClientRect();
+    m.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 340))}px`;
+    m.style.top = `${Math.min(r.bottom + 6, window.innerHeight - m.offsetHeight - 12)}px`;
+    setTimeout(() => document.addEventListener("click", closeMenu, { once: true }), 0);
+  }
+  function waitFor(pred, timeoutMs, every = 250) {
+    return new Promise((resolve) => { const t0 = Date.now(); const tick = () => { if (pred()) return resolve(true); if (Date.now() - t0 > timeoutMs) return resolve(false); setTimeout(tick, every); }; tick(); });
+  }
+  async function sendTo(it, tool, slot) {
+    const target = toolOf(tool); if (!target) return;
+    const rel = it.url.replace(/^\/media\/[^/]+\//, "").split("?")[0];
+    const detail = { type: "hub:import", slot: slot.id, slotLabel: slot.label, url: `/__hub/media/${it.tool}/${rel}`, name: rel.split("/").pop(), kind: kindOf(it),
+      from: { tool: it.tool, name: nameOf(it.tool), title: it.title || "" }, meta: { width: it.width, height: it.height, duration: it.duration, model: it.model } };
+    closeModal();
+    toast(`Sending to ${target.name}…`, "", slot.label, 4000);
+    location.hash = `#/tool/${tool}`;
+    const ready = await waitFor(() => S.frameReady[tool] && S.frames[tool], 240000);
+    if (!ready) { toast(`${target.name} did not come up in time`, "error", "Start it from Home and try again.", 9000); return; }
+    try { S.frames[tool].contentWindow.postMessage(detail, "*"); } catch (e) { toast(`Could not reach ${target.name}`, "error", String(e.message || e)); }
+  }
+  window.hubSendTo = (itemId, tool, slotId) => {   // for tests: hubSendTo("image:2026-09-29/x", "video", "i2v")
+    const it = [...S.lib.items, ...(S.recentItems || [])].find((x) => x.id === itemId); if (!it) return Promise.reject(new Error("item not loaded in the shell"));
+    return handoffTargets().then((ts) => { const t = ts.find((x) => x.tool === tool); const s = t && t.slots.find((x) => x.id === slotId); if (!s) throw new Error("no such slot"); return sendTo(it, tool, s); });
+  };
 
   // ------------------------------------------------------------------ settings
   const SETTINGS_SCHEMA = [
@@ -657,8 +704,13 @@
     });
     window.addEventListener("message", (e) => {
       const d = e.data || {};
-      if (d.type === "hub:ready" && d.tool) { const f = S.frames[d.tool]; if (f) { try { f.contentWindow.postMessage({ type: "hub:theme", theme: S.theme }, "*"); } catch (err) { /* ignore */ } } }
+      if (d.type === "hub:ready" && d.tool) { S.frameReady[d.tool] = true; const f = S.frames[d.tool]; if (f) { try { f.contentWindow.postMessage({ type: "hub:theme", theme: S.theme }, "*"); } catch (err) { /* ignore */ } } }
       if (d.type === "hub:navigate" && d.hash) location.hash = d.hash;
+      if (d.type === "hub:imported" && d.tool) {
+        const t = toolOf(d.tool);
+        if (d.ok) toast(`${t ? t.name : d.tool} received it`, "ok", d.message || "", 5000);
+        else toast(`${t ? t.name : d.tool} could not take it`, "error", d.message || "", 9000);
+      }
     });
     window.addEventListener("resize", () => { if (S.view === "home") drawSpark(); });
     setInterval(() => { if (S.view === "home") loadRecent(); }, 20000);

@@ -112,11 +112,63 @@
     };
   }
 
+  // ------------------------------------------------------------------ "Send to": receiving an output from another studio
+  // The shell posts {type:"hub:import", slot, url, name, kind, mime, from:{tool,title}}. ``url`` is same-origin
+  // (/__hub/media/<tool>/<path>), so the page can simply fetch() it. A studio takes the file by defining
+  //   window.hubImport = async function (detail) { ...; return { ok: true, message: "..." }; }
+  // and, if it lists what it accepts, window.hubImportSlots = ["edit", ...]. Until the receiver exists the
+  // request waits (the app may still be booting), then the outcome is reported back to the shell.
+  var pendingImports = [];
+  function reply(detail, ok, message) {
+    try { if (window.parent && window.parent !== window) window.parent.postMessage({ type: "hub:imported", tool: cfg.tool, slot: detail.slot, ok: !!ok, message: message || "" }, "*"); } catch (e) { /* ignore */ }
+  }
+  function deliver(detail) {
+    var fn = window.hubImport;
+    if (typeof fn !== "function") return false;
+    var res;
+    try { res = fn(detail); } catch (err) { reply(detail, false, String(err && err.message || err)); return true; }
+    Promise.resolve(res).then(function (r) {
+      var ok = !r || r.ok !== false;
+      reply(detail, ok, (r && r.message) || (ok ? "Received" : "The studio could not take this file"));
+      if (ok) showBanner((r && r.message) || ("Received from " + ((detail.from && detail.from.tool) || "the hub")), "", 4000);
+      else showBanner((r && r.message) || "Could not take this file", "warn", 8000);
+    }, function (err) { reply(detail, false, String(err && err.message || err)); showBanner("Could not take this file: " + (err && err.message || err), "warn", 8000); });
+    return true;
+  }
+  window.hubImportFetch = function (detail) {
+    // Helper for receivers: the file as a File object (name and type filled in).
+    return fetch(detail.url, { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status + " fetching the file");
+      return r.blob();
+    }).then(function (blob) {
+      var type = detail.mime || blob.type || "application/octet-stream";
+      try { return new File([blob], detail.name || "import", { type: type }); } catch (e) { blob.name = detail.name; return blob; }
+    });
+  };
+  var importTimer = setInterval(function () {
+    if (!pendingImports.length) return;
+    if (typeof window.hubImport !== "function") return;
+    var queue = pendingImports; pendingImports = [];
+    queue.forEach(function (q) { clearTimeout(q.timer); deliver(q.detail); });
+  }, 400);
+  function onImport(detail) {
+    if (deliver(detail)) return;
+    showBanner("Waiting for " + (cfg.name || "the studio") + " to be ready…", "busy", 30000);
+    var q = { detail: detail };
+    q.timer = setTimeout(function () {
+      var i = pendingImports.indexOf(q); if (i >= 0) pendingImports.splice(i, 1);
+      reply(detail, false, (cfg.name || "This studio") + " has no receiver for \"Send to\" yet");
+      showBanner("This studio cannot receive files yet", "warn", 8000);
+    }, 60000);
+    pendingImports.push(q);
+  }
+
   // ------------------------------------------------------------------ talk to the shell
   window.addEventListener("message", function (e) {
     var d = e.data || {};
     if (d.type === "hub:theme" && d.theme) applyTheme(d.theme);
     if (d.type === "hub:notice" && d.text) showBanner(d.text, d.tone, d.ttl || 6000);
+    if (d.type === "hub:import" && d.url && d.slot) onImport(d);
   });
   function announce() { try { if (window.parent && window.parent !== window) window.parent.postMessage({ type: "hub:ready", tool: cfg.tool }, "*"); } catch (e) { /* ignore */ } }
   if (document.readyState === "complete" || document.readyState === "interactive") announce(); else window.addEventListener("DOMContentLoaded", announce);

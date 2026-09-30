@@ -18,13 +18,8 @@ from . import __version__
 from . import docker as dk
 from .config import APP_NAME, BRAND_DIR, DEFAULT_TOOLS, PLATFORM, WEB_DIR, load_settings, save_settings
 from .core import Hub
+from .files import ranged_file
 from .process import pick_free_port
-
-mimetypes.add_type("font/otf", ".otf")
-mimetypes.add_type("font/ttf", ".ttf")
-mimetypes.add_type("image/webp", ".webp")
-mimetypes.add_type("audio/flac", ".flac")
-
 
 def _safe_child(base: Path, rel: str) -> Path | None:
     try:
@@ -34,42 +29,6 @@ def _safe_child(base: Path, rel: str) -> Path | None:
     if base.resolve() not in p.parents or not p.is_file():
         return None
     return p
-
-
-def _ranged_file(request: Request, path: Path, download: bool = False) -> Response:
-    """FileResponse with HTTP Range support so audio and video can seek."""
-    size = path.stat().st_size
-    ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    headers = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}
-    if download:
-        headers["Content-Disposition"] = f'attachment; filename="{path.name}"'
-    rng = request.headers.get("range")
-    if not rng or not rng.startswith("bytes="):
-        return FileResponse(path, media_type=ctype, headers=headers)
-    try:
-        start_s, end_s = rng[6:].split("-", 1)
-        start = int(start_s) if start_s else 0
-        end = int(end_s) if end_s else size - 1
-    except ValueError:
-        raise HTTPException(416, "bad range")
-    if start >= size:
-        raise HTTPException(416, "range not satisfiable")
-    end = min(end, size - 1)
-    length = end - start + 1
-    headers.update({"Content-Range": f"bytes {start}-{end}/{size}", "Content-Length": str(length)})
-
-    def body():
-        with open(path, "rb") as fh:
-            fh.seek(start)
-            remaining = length
-            while remaining > 0:
-                chunk = fh.read(min(1024 * 512, remaining))
-                if not chunk:
-                    break
-                remaining -= len(chunk)
-                yield chunk
-
-    return StreamingResponse(body(), status_code=206, media_type=ctype, headers=headers)
 
 
 def create_app(hub: Hub) -> FastAPI:
@@ -257,6 +216,21 @@ def create_app(hub: Hub) -> FastAPI:
             procs.append({**p, "tool": owner})
         return {"processes": procs, "used_mb": info.used_mb, "total_mb": info.total_mb}
 
+    # ------------------------------------------------------------------ hand-off ("Send to")
+    @app.get("/api/handoff/targets")
+    async def api_handoff_targets(kind: str = "") -> dict[str, Any]:
+        """Where an output can be sent: every studio's import slots, optionally only those taking ``kind``."""
+        kind = {"song": "audio"}.get(kind, kind)
+        targets = []
+        for tid in hub.order:
+            t = hub.tools[tid]
+            if not t.enabled:
+                continue
+            slots = [s for s in t.spec.import_slots if not kind or kind in s["kinds"]]
+            if slots:
+                targets.append({"tool": tid, "name": t.spec.name, "color": t.spec.color, "number": t.spec.number, "slots": slots})
+        return {"targets": targets}
+
     # ------------------------------------------------------------------ library
     @app.get("/api/library")
     async def api_library(tool: str = "", q: str = "", offset: int = 0, limit: int = 0, kind: str = "") -> dict[str, Any]:
@@ -269,7 +243,7 @@ def create_app(hub: Hub) -> FastAPI:
         p = hub.library.media_path(tool, path)
         if not p:
             raise HTTPException(404)
-        return _ranged_file(request, p, download=bool(download))
+        return ranged_file(request, p, download=bool(download))
 
     @app.get("/api/thumb")
     async def api_thumb(tool: str, path: str) -> Response:

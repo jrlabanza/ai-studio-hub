@@ -196,6 +196,9 @@ class ToolSpec:
     docker_port = 0
     docker_extra_services: tuple[str, ...] = ()   # optional helpers, started with their compose profile
     supports_unload = True          # False: the tool only holds the GPU while a job runs (Music Studio)
+    # "Send to" targets: what this studio can take from another one. Each slot is delivered to the
+    # studio's page through the hub bridge (window.hubImport) - see docs/handoff.md.
+    import_slots: tuple[dict[str, Any], ...] = ()
 
     # ------------------------------------------------------------------ installation
     def python(self, tool_dir: Path) -> Path:
@@ -313,7 +316,7 @@ class ToolSpec:
 
     def describe(self) -> dict[str, Any]:
         return {"id": self.id, "name": self.name, "short": self.short, "tagline": self.tagline,
-                "number": self.number, "color": self.color, "icon": self.icon}
+                "number": self.number, "color": self.color, "icon": self.icon, "import_slots": list(self.import_slots)}
 
 
 POST = frozenset({"POST"})
@@ -338,6 +341,11 @@ class ImageTool(ToolSpec):
     checkout_markers = ("server/main.py",)
     docker_service = "qwen-image"
     docker_port = 7864
+    import_slots = (
+        {'id': 'edit', 'label': 'Edit & Combine - as a reference image', 'kinds': ['image']},
+        {'id': 'local', 'label': 'Local edit - as the image to edit', 'kinds': ['image']},
+        {'id': 'extract', 'label': 'Extract subject', 'kinds': ['image']},
+    )
 
     def model_present(self, tool_dir: Path) -> tuple[bool, str]:
         ok = (tool_dir / "models" / "Qwen-Image-2.1" / "model_index.json").is_file()
@@ -456,6 +464,11 @@ class TtsTool(ToolSpec):
     docker_service = "qwen-tts"
     docker_port = 7861
     docker_extra_services = ("chatterbox",)
+    import_slots = (
+        {'id': 'clone', 'label': 'Voice clone - as the reference voice', 'kinds': ['audio']},
+        {'id': 'sts', 'label': 'Speech to speech - as the source', 'kinds': ['audio']},
+        {'id': 'dub', 'label': 'Dubbing - as the video (or audio)', 'kinds': ['video', 'audio']},
+    )
     claim_routes = tuple((POST, p) for p in (
         "/api/tts/", "/api/models/load", "/api/tokenizer/", "/api/voices", "/api/sts", "/api/dub", "/api/transcribe",
         "/api/regenerate/", "/api/quality/", "/api/batch/csv", "/api/previews/generate", "/api/finetune/start",
@@ -575,6 +588,11 @@ class VideoTool(ToolSpec):
     checkout_markers = ("backend/run.py",)
     docker_service = "video"
     docker_port = 8765
+    import_slots = (
+        {'id': 'i2v', 'label': 'Image to video - as the start frame', 'kinds': ['image']},
+        {'id': 'flf_start', 'label': 'First + last frame - as the first frame', 'kinds': ['image']},
+        {'id': 'flf_end', 'label': 'First + last frame - as the last frame', 'kinds': ['image']},
+    )
 
     def models_dir(self, tool_dir: Path) -> Path:
         """The repo's models/ - or, on Linux, the ComfyUI model store linux/.env points at."""
@@ -699,6 +717,10 @@ class MusicTool(ToolSpec):
     docker_service = "yue2"
     docker_port = 7863
     supports_unload = False
+    import_slots = (
+        {'id': 'voice', 'label': 'Sing it in this voice - as the voice reference', 'kinds': ['audio']},
+        {'id': 'cover', 'label': 'Cover this recording', 'kinds': ['audio']},
+    )
     claim_routes = ((POST, "/api/generate"), (POST, "/api/plan"), (POST, "/api/transcribe"), (POST, "/api/lyrics"),
                     (POST, "/api/describe"), (POST, "/api/songs/"))
     claim_exclude_suffixes = ("/export", "/share", "/meta")
@@ -783,6 +805,10 @@ class ForgeTool(ToolSpec):
     docker_service = "forge"
     docker_port = 7860
     idle_context_mb = 500
+    import_slots = (
+        {'id': 'edit', 'label': 'Studio - Edit this image', 'kinds': ['image']},
+        {'id': 'img2img', 'label': 'Classic - img2img source', 'kinds': ['image']},
+    )
 
     def model_present(self, tool_dir: Path) -> tuple[bool, str]:
         d = tool_dir / "models" / "Stable-diffusion"
