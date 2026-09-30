@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="AI Studio Hub">
+<rect x="0" y="0" width="200" height="200" rx="52" fill="currentColor"/>
+<g stroke="var(--mark-ink, #ffffff)" stroke-width="13" stroke-linecap="round" fill="none">
+<path d="M100 100 L100 52"/><path d="M100 100 L148 100"/><path d="M100 100 L100 148"/><path d="M100 100 L52 100"/>
+</g>
+<g fill="var(--mark-ink, #ffffff)">
+<circle cx="100" cy="100" r="21"/><circle cx="100" cy="44" r="13"/><circle cx="156" cy="100" r="13"/><circle cx="100" cy="156" r="13"/><circle cx="44" cy="100" r="13"/>
+</g>
+</svg>

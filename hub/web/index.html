@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{app}}</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/styles.css?v={{v}}">
+</head>
+<body class="booting">
+<div id="app" class="app">
+
+  <!-- ================================================================ rail -->
+  <aside class="rail" id="rail">
+    <a class="rail-brand" href="#/home" title="Home">
+      <span class="mark">{{mark}}</span>
+      <span class="wordmark wordmark-text">{{app}}</span>
+    </a>
+
+    <nav class="rail-nav" aria-label="Main">
+      <a class="nav-item" data-view="home" href="#/home">
+        <span class="nav-ico"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg></span>
+        <span class="nav-label">Home</span>
+      </a>
+      <div class="nav-section">Studios</div>
+      <a class="nav-item nav-tool" data-view="tool" data-tool="image" href="#/tool/image" style="--tool:#1C4991">
+        <span class="nav-num">01</span><span class="nav-label">Image Studio</span><span class="nav-dot" id="navdot-image"></span>
+      </a>
+      <a class="nav-item nav-tool" data-view="tool" data-tool="tts" href="#/tool/tts" style="--tool:#34C6A3">
+        <span class="nav-num">02</span><span class="nav-label">Voice Studio</span><span class="nav-dot" id="navdot-tts"></span>
+      </a>
+      <a class="nav-item nav-tool" data-view="tool" data-tool="video" href="#/tool/video" style="--tool:#FFC23B">
+        <span class="nav-num">03</span><span class="nav-label">Video Studio</span><span class="nav-dot" id="navdot-video"></span>
+      </a>
+      <a class="nav-item nav-tool" data-view="tool" data-tool="music" href="#/tool/music" style="--tool:#11A311">
+        <span class="nav-num">04</span><span class="nav-label">Music Studio</span><span class="nav-dot" id="navdot-music"></span>
+      </a>
+      <div class="nav-section">Everything</div>
+      <a class="nav-item" data-view="library" href="#/library">
+        <span class="nav-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
+        <span class="nav-label">Library</span>
+      </a>
+      <a class="nav-item" data-view="settings" href="#/settings">
+        <span class="nav-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>
+        <span class="nav-label">Settings</span>
+      </a>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="rail-gpu" id="railGpu" title="VRAM in use">
+        <div class="rail-gpu-bar"><i id="railGpuFill"></i></div>
+        <div class="rail-gpu-text"><span id="railGpuText">GPU</span></div>
+      </div>
+      <div class="rail-buttons">
+        <button class="rail-btn" id="btnTheme" title="Switch light / dark theme (Alt+T)">
+          <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span class="nav-label">Theme</span>
+        </button>
+        <button class="rail-btn" id="btnCollapse" title="Collapse sidebar">
+          <svg viewBox="0 0 24 24" class="chev"><path d="m15 6-6 6 6 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ================================================================ main -->
+  <main class="main">
+    <header class="topbar">
+      <div class="top-title">
+        <span class="top-num" id="topNum" hidden></span>
+        <div>
+          <h1 id="topTitle">Home</h1>
+          <div class="top-sub" id="topSub">Orchestrating your GPU</div>
+        </div>
+      </div>
+      <div class="top-status">
+        <div class="chip owner" id="chipOwner" title="Which studio holds the GPU right now"><span class="chip-dot"></span><span id="chipOwnerText">GPU free</span></div>
+        <div class="meter" id="meterVram" title="VRAM"><span class="meter-label">VRAM</span><div class="meter-bar"><i id="meterVramFill"></i></div><span class="meter-text" id="meterVramText">—</span></div>
+        <div class="meter" id="meterRam" title="System RAM"><span class="meter-label">RAM</span><div class="meter-bar"><i id="meterRamFill"></i></div><span class="meter-text" id="meterRamText">—</span></div>
+        <div class="chip jobs" id="chipJobs" hidden><span class="spinner"></span><span id="chipJobsText"></span></div>
+      </div>
+      <div class="top-actions">
+        <button class="btn ghost" id="btnFreeGpu" title="Unload every model so the whole card is free">Free GPU</button>
+        <button class="btn ghost icon" id="btnActivity" title="Activity (Alt+A)"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span class="badge" id="activityBadge" hidden></span></button>
+        <span class="conn" id="conn" title="Connection to the hub"></span>
+      </div>
+    </header>
+
+    <!-- ---------------------------------------------------------- home -->
+    <section class="view view-home" id="view-home">
+      <div class="hero">
+        <div class="hero-text">
+          <div class="eyebrow">{{app}}</div>
+          <h2 class="serif" id="heroTitle">Good morning.</h2>
+          <p id="heroSub">Four local studios, one graphics card, no model juggling. Open a studio and start creating - the hub loads and unloads models for you.</p>
+          <div class="hero-actions">
+            <a class="btn primary" href="#/tool/image">Open Image Studio</a>
+            <a class="btn" href="#/library">Browse the library</a>
+          </div>
+        </div>
+        <div class="hero-art" aria-hidden="true">{{hero}}</div>
+      </div>
+
+      <div class="home-grid">
+        <section class="card gpu-card" id="gpuCard">
+          <div class="card-head">
+            <div><div class="eyebrow">Graphics card</div><h3 id="gpuName">Detecting…</h3></div>
+            <span class="pill" id="gpuOwnerPill">Free</span>
+          </div>
+          <div class="vram-big"><span id="vramFree">—</span><small id="vramTotal"></small></div>
+          <div class="stack" id="vramStack" title="VRAM in use and free">
+            <i class="seg tools" id="segTools"></i><i class="seg other" id="segOther"></i>
+          </div>
+          <div class="stack-legend">
+            <span><b class="sw tools"></b>In use <em id="legTools">—</em></span>
+            <span><b class="sw free"></b>Free <em id="legFree">—</em></span>
+          </div>
+          <canvas id="gpuSpark" width="600" height="64" aria-label="VRAM over the last minutes"></canvas>
+          <dl class="facts">
+            <div><dt>Policy</dt><dd id="factPolicy">—</dd></div>
+            <div><dt>Idle unload</dt><dd id="factIdle">—</dd></div>
+            <div><dt>Utilisation</dt><dd id="factUtil">—</dd></div>
+            <div><dt>System RAM</dt><dd id="factRam">—</dd></div>
+          </dl>
+          <div class="gpu-actions">
+            <button class="btn" data-global="free">Unload all models</button>
+            <button class="btn ghost" data-global="free-stop">Stop all studios</button>
+          </div>
+        </section>
+
+        <div class="tool-cards" id="toolCards"></div>
+      </div>
+
+      <section class="card recent-card">
+        <div class="card-head"><div><div class="eyebrow">Latest</div><h3>Recent creations</h3></div><a class="btn ghost" href="#/library">Open library</a></div>
+        <div class="recent-strip" id="recentStrip"><div class="empty">Nothing yet - your first creations will show up here.</div></div>
+      </section>
+
+      <section class="card activity-card">
+        <div class="card-head"><div><div class="eyebrow">What the hub did</div><h3>Activity</h3></div></div>
+        <ul class="activity-list" id="activityList"></ul>
+      </section>
+    </section>
+
+    <!-- ---------------------------------------------------------- tool -->
+    <section class="view view-tool" id="view-tool" hidden>
+      <div class="tool-frames" id="toolFrames"></div>
+      <div class="tool-overlay" id="toolOverlay" hidden>
+        <div class="overlay-card">
+          <div class="tool-num overlay-num" id="overlayNum">01</div>
+          <h3 id="overlayTitle">Image Studio</h3>
+          <p id="overlayText"></p>
+          <div class="overlay-actions">
+            <button class="btn primary" id="overlayStart">Start</button>
+            <button class="btn" id="overlayLog">View log</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- library -->
+    <section class="view view-library" id="view-library" hidden>
+      <div class="lib-bar">
+        <div class="chips" id="libChips">
+          <button class="chip filter active" data-tool="">All</button>
+          <button class="chip filter" data-tool="image" style="--tool:#1C4991">Image</button>
+          <button class="chip filter" data-tool="tts" style="--tool:#34C6A3">Voice</button>
+          <button class="chip filter" data-tool="video" style="--tool:#FFC23B">Video</button>
+          <button class="chip filter" data-tool="music" style="--tool:#11A311">Music</button>
+        </div>
+        <div class="lib-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="libSearch" type="search" placeholder="Search prompts, scripts, titles…"></div>
+        <span class="lib-count" id="libCount"></span>
+      </div>
+      <div class="lib-grid" id="libGrid"></div>
+      <div class="lib-foot"><button class="btn" id="libMore" hidden>Show more</button></div>
+    </section>
+
+    <!-- ---------------------------------------------------------- settings -->
+    <section class="view view-settings" id="view-settings" hidden>
+      <div class="settings-grid" id="settingsGrid"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ================================================================ drawer / modal / toasts -->
+<aside class="drawer" id="drawer" hidden>
+  <div class="drawer-head"><h3>Activity</h3><button class="btn ghost icon" id="drawerClose" title="Close">✕</button></div>
+  <ul class="activity-list full" id="drawerList"></ul>
+</aside>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card" id="modalCard" role="dialog" aria-modal="true">
+    <button class="modal-close btn ghost icon" id="modalClose" title="Close (Esc)">✕</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<template id="tplToolCard">
+  <article class="card tool-card">
+    <div class="tool-num"></div>
+    <div class="tool-body">
+      <div class="tool-head"><h3 class="tool-name"></h3><span class="pill tool-pill"></span></div>
+      <p class="tool-tag"></p>
+      <div class="tool-summary"><strong class="sum-label"></strong><span class="sum-detail"></span></div>
+      <div class="job" hidden>
+        <div class="job-title"></div>
+        <div class="progress"><i></i></div>
+        <div class="job-meta"></div>
+      </div>
+      <div class="note warn" hidden></div>
+      <div class="tool-actions">
+        <button class="btn primary" data-act="open">Open</button>
+        <button class="btn" data-act="warm" title="Free the GPU for this studio and load its model now">Warm up</button>
+        <button class="btn" data-act="unload" title="Unload this studio's model">Unload</button>
+        <button class="btn" data-act="start">Start</button>
+        <button class="btn" data-act="stop">Stop</button>
+        <button class="btn ghost icon" data-act="menu" title="More">⋯</button>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="/static/app.js?v={{v}}"></script>
+</body>
+</html>

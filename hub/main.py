@@ -1,0 +1,312 @@
+"""The hub's own web app: the shell, its JSON API and the live event stream."""
+from __future__ import annotations
+
+import asyncio
+import json
+import mimetypes
+import os
+import subprocess
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+
+from . import __version__
+from .config import APP_NAME, BRAND_DIR, DEFAULT_TOOLS, WEB_DIR, load_settings, save_settings
+from .core import Hub
+from .process import pick_free_port
+
+mimetypes.add_type("font/otf", ".otf")
+mimetypes.add_type("font/ttf", ".ttf")
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("audio/flac", ".flac")
+
+
+def _safe_child(base: Path, rel: str) -> Path | None:
+    try:
+        p = (base / rel).resolve()
+    except Exception:
+        return None
+    if base.resolve() not in p.parents or not p.is_file():
+        return None
+    return p
+
+
+def _ranged_file(request: Request, path: Path, download: bool = False) -> Response:
+    """FileResponse with HTTP Range support so audio and video can seek."""
+    size = path.stat().st_size
+    ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    headers = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{path.name}"'
+    rng = request.headers.get("range")
+    if not rng or not rng.startswith("bytes="):
+        return FileResponse(path, media_type=ctype, headers=headers)
+    try:
+        start_s, end_s = rng[6:].split("-", 1)
+        start = int(start_s) if start_s else 0
+        end = int(end_s) if end_s else size - 1
+    except ValueError:
+        raise HTTPException(416, "bad range")
+    if start >= size:
+        raise HTTPException(416, "range not satisfiable")
+    end = min(end, size - 1)
+    length = end - start + 1
+    headers.update({"Content-Range": f"bytes {start}-{end}/{size}", "Content-Length": str(length)})
+
+    def body():
+        with open(path, "rb") as fh:
+            fh.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = fh.read(min(1024 * 512, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    return StreamingResponse(body(), status_code=206, media_type=ctype, headers=headers)
+
+
+def create_app(hub: Hub) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await hub.start()
+        try:
+            yield
+        finally:
+            await hub.stop()
+
+    app = FastAPI(title=APP_NAME, version=__version__, lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
+
+    # ------------------------------------------------------------------ shell
+    @app.get("/", response_class=HTMLResponse)
+    async def index() -> HTMLResponse:
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8").replace("{{v}}", __version__)
+        for key, name in (("mark", "logo-mark.svg"), ("hero", "hero.svg")):
+            html = html.replace("{{" + key + "}}", (BRAND_DIR / name).read_text(encoding="utf-8"))
+        html = html.replace("{{theme}}", load_settings().theme).replace("{{app}}", APP_NAME)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+    @app.get("/favicon.ico")
+    async def favicon() -> Response:
+        return FileResponse(BRAND_DIR / "favicon.svg", media_type="image/svg+xml")
+
+    @app.get("/static/{path:path}")
+    async def static(path: str) -> Response:
+        p = _safe_child(WEB_DIR, path)
+        if not p:
+            raise HTTPException(404)
+        return FileResponse(p, headers={"Cache-Control": "no-cache"})
+
+    @app.get("/brand/{path:path}")
+    async def brand(path: str) -> Response:
+        p = _safe_child(BRAND_DIR, path)
+        if not p:
+            raise HTTPException(404)
+        return FileResponse(p, headers={"Cache-Control": "public, max-age=3600"})
+
+    # ------------------------------------------------------------------ state + events
+    @app.get("/api/state")
+    async def api_state() -> dict[str, Any]:
+        return hub.snapshot()
+
+    @app.get("/api/events")
+    async def api_events(request: Request) -> StreamingResponse:
+        q = hub.bus.subscribe()
+
+        async def gen():
+            try:
+                yield f"event: state\ndata: {json.dumps(hub.snapshot(), default=str)}\n\n"
+                for ev in list(hub.bus.recent)[-40:]:
+                    yield f"event: {ev.get('type', 'log')}\ndata: {json.dumps({**ev, 'replay': True}, default=str)}\n\n"
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        ev = await asyncio.wait_for(q.get(), timeout=15.0)
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+                        continue
+                    payload = ev.get("state") if ev.get("type") == "state" else ev
+                    yield f"event: {ev.get('type', 'log')}\ndata: {json.dumps(payload, default=str)}\n\n"
+            finally:
+                hub.bus.unsubscribe(q)
+
+        return StreamingResponse(gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.get("/api/activity")
+    async def api_activity(limit: int = 80) -> dict[str, Any]:
+        return {"events": list(hub.bus.recent)[-max(1, min(limit, 300)):]}
+
+    # ------------------------------------------------------------------ settings
+    @app.get("/api/settings")
+    async def api_get_settings() -> dict[str, Any]:
+        return load_settings().to_dict()
+
+    @app.put("/api/settings")
+    async def api_put_settings(request: Request) -> dict[str, Any]:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(400, "Expected a JSON object")
+        if "gpu_policy" in data and data["gpu_policy"] not in ("auto", "exclusive", "budget"):
+            raise HTTPException(400, "gpu_policy must be auto, exclusive or budget")
+        if "theme" in data and data["theme"] not in ("light", "dark"):
+            raise HTTPException(400, "theme must be light or dark")
+        s = save_settings(data)
+        hub.bus.publish({"type": "settings", "settings": s.to_dict()})
+        return s.to_dict()
+
+    # ------------------------------------------------------------------ tools
+    def _tool(tool_id: str):
+        t = hub.tools.get(tool_id)
+        if not t:
+            raise HTTPException(404, "Unknown tool")
+        return t
+
+    @app.get("/api/tools/{tool_id}")
+    async def api_tool(tool_id: str) -> dict[str, Any]:
+        t = _tool(tool_id)
+        d = t.describe()
+        d["summary"] = hub.orchestrator.summary(tool_id).to_dict()
+        return d
+
+    @app.post("/api/tools/{tool_id}/start")
+    async def api_tool_start(tool_id: str) -> dict[str, Any]:
+        t = _tool(tool_id)
+        asyncio.create_task(t.start())
+        await asyncio.sleep(0.2)
+        return {"ok": True, "state": t.state}
+
+    @app.post("/api/tools/{tool_id}/stop")
+    async def api_tool_stop(tool_id: str) -> dict[str, Any]:
+        t = _tool(tool_id)
+        await t.stop("stopped from the hub")
+        if hub.orchestrator.owner == tool_id:
+            hub.orchestrator.owner = None
+        return {"ok": True, "state": t.state}
+
+    @app.post("/api/tools/{tool_id}/restart")
+    async def api_tool_restart(tool_id: str) -> dict[str, Any]:
+        t = _tool(tool_id)
+        asyncio.create_task(t.restart())
+        await asyncio.sleep(0.2)
+        return {"ok": True, "state": t.state}
+
+    @app.post("/api/tools/{tool_id}/unload")
+    async def api_tool_unload(tool_id: str) -> dict[str, Any]:
+        t = _tool(tool_id)
+        if hub.orchestrator.summary(tool_id).busy:
+            raise HTTPException(409, f"{t.spec.name} is busy with a job")
+        ok = await hub.orchestrator.unload_models(t, "requested from the hub")
+        if hub.orchestrator.owner == tool_id:
+            hub.orchestrator.owner = None
+        return {"ok": ok}
+
+    @app.post("/api/tools/{tool_id}/prepare")
+    async def api_tool_prepare(tool_id: str) -> dict[str, Any]:
+        _tool(tool_id)
+        res = await hub.orchestrator.prepare(tool_id, "requested from the hub")
+        return res.to_dict()
+
+    @app.get("/api/tools/{tool_id}/log")
+    async def api_tool_log(tool_id: str, lines: int = 200) -> dict[str, Any]:
+        t = _tool(tool_id)
+        return {"lines": t.tail(max(1, min(lines, 500))), "state": t.state, "path": str(t.log_path)}
+
+    @app.post("/api/tools/{tool_id}/open-folder")
+    async def api_tool_open_folder(tool_id: str) -> dict[str, Any]:
+        t = _tool(tool_id)
+        folder = t.spec.outputs_dir(t.tool_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(str(folder))  # noqa: S606 - opens Explorer on the user's own PC
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+        return {"ok": True, "path": str(folder)}
+
+    # ------------------------------------------------------------------ GPU
+    @app.post("/api/gpu/free")
+    async def api_gpu_free(request: Request) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        actions = await hub.orchestrator.free_gpu(stop_processes=bool(body.get("stop")))
+        return {"ok": True, "actions": actions, "free_mb": hub.gpu.latest.free_mb}
+
+    @app.post("/api/focus")
+    async def api_focus(request: Request) -> dict[str, Any]:
+        body = await request.json()
+        tool = body.get("tool") if isinstance(body, dict) else None
+        await hub.orchestrator.set_focus(tool if tool in hub.tools else None)
+        return {"ok": True, "focus": hub.orchestrator.focus}
+
+    @app.get("/api/gpu/processes")
+    async def api_gpu_processes() -> dict[str, Any]:
+        info = await hub.gpu.refresh(with_processes=True)
+        procs = []
+        for p in info.processes:
+            owner = next((t.id for t in hub.tools.values() if t.pid and p["pid"] == t.pid), None)
+            procs.append({**p, "tool": owner})
+        return {"processes": procs, "used_mb": info.used_mb, "total_mb": info.total_mb}
+
+    # ------------------------------------------------------------------ library
+    @app.get("/api/library")
+    async def api_library(tool: str = "", q: str = "", offset: int = 0, limit: int = 0, kind: str = "") -> dict[str, Any]:
+        limit = limit or load_settings().library_page_size
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: hub.library.query(tool, q, max(0, offset), max(1, min(limit, 300)), kind))
+
+    @app.get("/media/{tool}/{path:path}")
+    async def media(tool: str, path: str, request: Request, download: int = 0) -> Response:
+        p = hub.library.media_path(tool, path)
+        if not p:
+            raise HTTPException(404)
+        return _ranged_file(request, p, download=bool(download))
+
+    @app.get("/api/thumb")
+    async def api_thumb(tool: str, path: str) -> Response:
+        loop = asyncio.get_running_loop()
+        p = await loop.run_in_executor(None, hub.library.thumbnail, tool, path)
+        if not p:
+            raise HTTPException(404)
+        return FileResponse(p, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.post("/api/library/open")
+    async def api_library_open(request: Request) -> dict[str, Any]:
+        body = await request.json()
+        folder = Path(str(body.get("folder", "")))
+        allowed = [t.spec.outputs_dir(t.tool_dir).resolve() for t in hub.tools.values()]
+        try:
+            target = folder.resolve()
+        except Exception:
+            raise HTTPException(400, "bad folder")
+        if not any(target == a or a in target.parents for a in allowed) or not target.is_dir():
+            raise HTTPException(400, "folder is not one of the studio output folders")
+        if sys.platform == "win32":
+            os.startfile(str(target))  # noqa: S606
+        else:
+            subprocess.Popen(["xdg-open", str(target)])
+        return {"ok": True}
+
+    # ------------------------------------------------------------------ doctor
+    @app.get("/api/doctor")
+    async def api_doctor() -> dict[str, Any]:
+        g = hub.gpu.latest
+        checks = [{"name": "NVIDIA GPU", "ok": g.available,
+                   "detail": f"{g.name} · {g.total_mb / 1024:.0f} GB · driver {g.driver}" if g.available else "nvidia-smi not found"}]
+        for t in hub.tools.values():
+            inst, why = t.spec.installed(t.tool_dir)
+            model_ok, model_why = t.spec.model_present(t.tool_dir) if inst else (False, "")
+            checks.append({"name": f"{t.spec.name} environment", "ok": inst, "detail": why or str(t.spec.python(t.tool_dir))})
+            if inst:
+                checks.append({"name": f"{t.spec.name} models", "ok": model_ok, "detail": model_why or "present"})
+        return {"checks": checks, "defaults": DEFAULT_TOOLS, "python": sys.version.split()[0]}
+
+    return app

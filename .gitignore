@@ -1,0 +1,11 @@
+# hub environment and runtime data
+.venv/
+data/
+__pycache__/
+*.pyc
+
+# tool folders, if you keep them inside this folder (they are their own repositories)
+Image gen/
+qwen tts/
+video-gen/
+Yue2/

@@ -1,0 +1,22 @@
+/* Hub theme for Music Studio (Music Gen Studio). Maps the tool's own CSS variables. */
+html:root[data-hub-theme="light"] {
+  --bg: #F4F6F9; --bg-2: #EEF1F5; --panel: #FFFFFF; --panel-2: #F7F8FA;
+  --border: #E5E5E4; --border-strong: #CFD5DE;
+  --text: #07193A; --muted: #6B7A93; --faint: #9AA7BB;
+  --accent: #1C4991; --accent-2: #34C6A3; --accent-ink: #FFFFFF;
+  --ok: #11A311; --danger: #D6453D; --info: #1C4991;
+  --shadow: 0 1px 2px rgba(7, 25, 58, .06), 0 8px 24px rgba(7, 25, 58, .06);
+  color-scheme: light;
+}
+html:root[data-hub-theme="dark"] {
+  --bg: #061027; --bg-2: #081633; --panel: #0B1B3B; --panel-2: #10244D;
+  --border: rgba(255, 255, 255, .10); --border-strong: rgba(255, 255, 255, .22);
+  --text: #F2F5FA; --muted: #8FA1BF; --faint: #5F7194;
+  --accent: #34C6A3; --accent-2: #7FE0C8; --accent-ink: #07193A;
+  --ok: #3ACB5A; --danger: #F07171; --info: #7FB2FF;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 8px 30px rgba(0, 0, 0, .35);
+  color-scheme: dark;
+}
+html:root[data-hub-theme] header.topbar .brand { display: none !important; }
+html:root[data-hub-theme] .pill.busy .dot { background: #34C6A3; }
+html:root[data-hub-theme] .pill.share { color: var(--info); border-color: rgba(28, 73, 145, .35); }

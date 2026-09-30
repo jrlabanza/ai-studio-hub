@@ -1,0 +1,41 @@
+/* Hub theme - shared part injected into every studio. Per-tool variable maps live in <tool>.css. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+/* The hub's font for the parts that carry identity: titles, tabs, buttons. Body copy keeps the tool's own
+   text face so dense 12-13 px UI text stays exactly as its author tuned it. */
+html[data-hub-fonts="1"] h1, html[data-hub-fonts="1"] h2, html[data-hub-fonts="1"] h3, html[data-hub-fonts="1"] h4,
+html[data-hub-fonts="1"] .title, html[data-hub-fonts="1"] .brand-name, html[data-hub-fonts="1"] .panel-head h2,
+html[data-hub-fonts="1"] .tab, html[data-hub-fonts="1"] .tabs button, html[data-hub-fonts="1"] .seg-btn,
+html[data-hub-fonts="1"] .btn, html[data-hub-fonts="1"] .btn-primary, html[data-hub-fonts="1"] .btn-ghost,
+html[data-hub-fonts="1"] button.primary, html[data-hub-fonts="1"] .pill, html[data-hub-fonts="1"] .mode-tabs button,
+html[data-hub-fonts="1"] .modes button, html[data-hub-fonts="1"] .segmented button {
+  font-family: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif !important;
+}
+html[data-hub-fonts="1"] h1, html[data-hub-fonts="1"] h2, html[data-hub-fonts="1"] .panel-head h2 { font-weight: 700; }
+
+/* The tools' own theme toggles are hidden: the shell owns the theme. */
+html[data-hub-theme] #btnTheme { display: none !important; }
+
+/* Orchestrator banner (created by bridge.js). */
+#hub-banner {
+  position: fixed; left: 50%; top: 12px; transform: translate(-50%, -140%); z-index: 99999;
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px 10px 12px; border-radius: 12px;
+  background: #0B1F45; color: #fff; font: 600 13.5px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+  box-shadow: 0 10px 30px rgba(11, 31, 69, .35); transition: transform .25s ease; max-width: min(640px, 92vw);
+  pointer-events: none;
+}
+#hub-banner.show { transform: translate(-50%, 0); }
+#hub-banner.warn { background: #6b4b00; }
+#hub-banner .hub-banner-lines { display: flex; flex-direction: column; gap: 2px; width: 22px; flex: none; }
+#hub-banner .hub-banner-lines i { display: block; height: 3px; border-radius: 2px; background: #FFC23B; animation: hubslide 1.2s ease-in-out infinite; }
+#hub-banner .hub-banner-lines i:nth-child(1) { background: #FFC23B; animation-delay: 0s; }
+#hub-banner .hub-banner-lines i:nth-child(2) { background: #11A311; animation-delay: .1s; }
+#hub-banner .hub-banner-lines i:nth-child(3) { background: #34C6A3; animation-delay: .2s; }
+#hub-banner .hub-banner-lines i:nth-child(4) { background: #1C4991; animation-delay: .3s; }
+#hub-banner .hub-banner-lines i:nth-child(5) { background: #ffffff; animation-delay: .4s; }
+#hub-banner.warn .hub-banner-lines i { animation: none; }
+@keyframes hubslide { 0%, 100% { transform: translateX(-3px); opacity: .6; } 50% { transform: translateX(3px); opacity: 1; } }
+
+/* Scrollbars follow the theme. */
+html[data-hub-theme] ::-webkit-scrollbar-thumb { background: rgba(107, 122, 147, .45); border-radius: 8px; }
+html[data-hub-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .18); }

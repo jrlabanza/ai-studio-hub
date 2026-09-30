@@ -1,0 +1,20 @@
+/* Hub theme for Voice Studio (Text To Speech generator). Maps the tool's own CSS variables. */
+html:root[data-hub-theme="light"] {
+  --bg: #F4F6F9; --bg-2: #FFFFFF; --bg-3: #EEF1F5;
+  --text: #07193A; --muted: #6B7A93; --border: #E5E5E4;
+  --accent: #1C4991; --accent-2: #16397A; --accent-soft: #E3ECF9;
+  --danger: #D6453D; --danger-soft: #FBE5E3; --ok: #11A311; --warn: #C99400;
+  --shadow: 0 6px 24px rgba(7, 25, 58, .07);
+}
+html:root[data-hub-theme="dark"] {
+  --bg: #061027; --bg-2: #0B1B3B; --bg-3: #10244D;
+  --text: #F2F5FA; --muted: #8FA1BF; --border: rgba(255, 255, 255, .12);
+  --accent: #3F6FD1; --accent-2: #5F8BE6; --accent-soft: #16305F;
+  --danger: #F07171; --danger-soft: #4A1F22; --ok: #3ACB5A; --warn: #FFC23B;
+  --shadow: 0 6px 24px rgba(0, 0, 0, .35);
+}
+html:root[data-hub-theme] .topbar .brand { display: none !important; }
+html:root[data-hub-theme] .tab.active { color: var(--accent); border-bottom-color: #34C6A3; }
+html:root[data-hub-theme] .seg-btn.active { box-shadow: 0 1px 4px rgba(7, 25, 58, .10); }
+html:root[data-hub-theme] .dot.ready, html:root[data-hub-theme] .dot.ok { background: var(--ok); }
+html:root[data-hub-theme] .dot.loading { background: #34C6A3; }
