@@ -287,12 +287,12 @@
     const x0 = w - step * (hist.length - 1);
     ctx.beginPath();
     hist.forEach(([, used], i) => { const x = x0 + i * step, y = h - 4 - (used / total) * (h - 10); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.strokeStyle = "#34C6A3"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+    ctx.strokeStyle = "#4CC38A"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
     ctx.lineTo(w, h); ctx.lineTo(x0, h); ctx.closePath();
-    ctx.fillStyle = "rgba(52,198,163,.15)"; ctx.fill();
+    ctx.fillStyle = "rgba(76,195,138,.15)"; ctx.fill();
     ctx.beginPath();
     hist.forEach(([, , util], i) => { const x = x0 + i * step, y = h - 4 - (util / 100) * (h - 10); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.strokeStyle = "#FFC23B"; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = "#8A8A93"; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
   }
 
   function renderToolCards() {

@@ -6,11 +6,11 @@
 <title>{{name}} · starting</title>
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Fraunces:opsz,wght@9..144,300&display=swap");
-:root { --bg: #F4F6F9; --panel: #fff; --text: #0B1F45; --muted: #6B7A93; --line: #E5E5E4; --tool: {{color}}; }
-:root[data-hub-theme="dark"] { --bg: #061027; --panel: #0B1B3B; --text: #F2F5FA; --muted: #8FA1BF; --line: rgba(255,255,255,.1); }
+:root { --bg: #F3F3F4; --panel: #fff; --text: #111113; --muted: #71717A; --line: #E4E4E7; --btn: #17171A; --btn-ink: #fff; --log: #0B0B0D; --tool: {{color}}; }
+:root[data-hub-theme="dark"] { --bg: #0B0B0D; --panel: #141416; --text: #ECECEE; --muted: #8A8A93; --line: rgba(255,255,255,.1); --btn: #F4F4F5; --btn-ink: #0B0B0D; --log: #060607; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font-family: "Inter", "Segoe UI", system-ui, sans-serif; display: grid; place-items: center; font-size: 15px; }
-.card { width: min(560px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 34px 36px 30px; box-shadow: 0 10px 30px rgba(11,31,69,.08); position: relative; overflow: hidden; }
+.card { width: min(560px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 34px 36px 30px; box-shadow: 0 10px 30px rgba(0,0,0,.08); position: relative; overflow: hidden; }
 .num { font-weight: 300; font-size: 60px; line-height: 1; color: transparent; -webkit-text-stroke: 1.5px var(--tool); margin-bottom: 8px; }
 h1 { font-family: "Fraunces", Georgia, serif; font-weight: 300; font-size: 32px; margin: 0 0 6px; }
 p { margin: 0 0 18px; color: var(--muted); }
@@ -19,9 +19,9 @@ p { margin: 0 0 18px; color: var(--muted); }
 .status { display: flex; align-items: center; gap: 10px; font-weight: 700; }
 .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--tool); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.log { margin-top: 16px; background: #0B1F45; color: #d7dfec; border-radius: 10px; padding: 10px 12px; font: 12px/1.45 Consolas, "Cascadia Code", monospace; height: 132px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
-.err { color: #D6453D; margin-top: 12px; white-space: pre-wrap; font-size: 14px; }
-button { font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 9px; border: 1px solid #1C4991; background: #1C4991; color: #fff; cursor: pointer; margin-top: 12px; }
+.log { margin-top: 16px; background: var(--log); color: #D4D4D8; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 12px/1.45 Consolas, "Cascadia Code", monospace; height: 132px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+.err { color: #D93F3F; margin-top: 12px; white-space: pre-wrap; font-size: 14px; }
+button { font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 9px; border: 1px solid var(--btn); background: var(--btn); color: var(--btn-ink); cursor: pointer; margin-top: 12px; }
 .elapsed { color: var(--muted); font-weight: 400; margin-left: auto; font-variant-numeric: tabular-nums; }
 </style>
 </head>
@@ -34,7 +34,7 @@ button { font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 9px;
   <div class="err" id="err" hidden></div>
   <button id="retry" hidden>Try again</button>
   <div class="log" id="log"></div>
-  <div class="lines"><i style="background:#0B1F45"></i><i style="background:#1C4991"></i><i style="background:#34C6A3"></i><i style="background:#11A311"></i><i style="background:#FFC23B"></i></div>
+  <div class="lines"><i style="background:#F4C15D"></i><i style="background:#6FCF97"></i><i style="background:#F28B82"></i><i style="background:#A78BFA"></i><i style="background:#E05A4E"></i></div>
 </div>
 <script>
 (function () {
