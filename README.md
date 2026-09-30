@@ -12,8 +12,12 @@ between them, and gathers everything they make into one library. The tools thems
 | 02 | **Voice Studio** | Text To Speech generator — Qwen3-TTS preset voices, voice design, cloning, dubbing | [jrlabanza/tts-generator](https://github.com/jrlabanza/tts-generator) |
 | 03 | **Video Studio** | Lumen Video Studio — LTX-2.5 and MiniMax H3 video with audio | [jrlabanza/video-generator](https://github.com/jrlabanza/video-generator) |
 | 04 | **Music Studio** | Music Gen Studio — YuE2 songs from lyrics with an editable score | [jrlabanza/music-generator](https://github.com/jrlabanza/music-generator) |
-| 05 | **Forge Studio** | Forge Neo — the Jrlabanza Image Generator build of Stable Diffusion WebUI Forge | [jrlabanza/jrlabanza-image-generator-core](https://github.com/jrlabanza/jrlabanza-image-generator-core) |
-| 06 | **Node Studio** | ComfyUI v0.34.0 — node graphs (Linux packaging: [jrlabanza/comfyui-linux](https://github.com/jrlabanza/comfyui-linux) as `linux/`) | [Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI) |
+| 05 | **Forge Studio** *(optional)* | Forge Neo — the Jrlabanza Image Generator build of Stable Diffusion WebUI Forge | [jrlabanza/jrlabanza-image-generator-core](https://github.com/jrlabanza/jrlabanza-image-generator-core) |
+| 06 | **Node Studio** *(optional)* | ComfyUI — node graphs (Linux packaging: [jrlabanza/comfyui-linux](https://github.com/jrlabanza/comfyui-linux) as `linux/`) | [Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI) |
+
+The first four are part of this repository (git submodules). Forge and ComfyUI are **not**: the hub simply picks them
+up when a checkout named `forge` / `comfyui` (or their repository names) sits next to the hub folder, and leaves them
+out of the shell otherwise.
 
 Runs on **Windows** (each tool in its own Python environment) and on **Linux** (each tool in its own Docker
 container, the `linux/` packaging every studio ships).
@@ -29,9 +33,9 @@ container, the `linux/` packaging every studio ships).
    Already cloned without them? `git submodule update --init --recursive` fetches them (`--recursive` also brings the
    upstream YuE repository that Music Studio embeds).
 2. Set each studio up once with its own script: `Image gen\Initialize.bat`, `qwen tts\initialize.bat`,
-   `video-gen\initialize.bat`, `Yue2\initialize.bat`, `forge\initialize.bat`. They create their own Python environments and
-   download their models. For ComfyUI use the portable build (`ComfyUI_windows_portable`) and point Settings → Studios →
-   Folder at it.
+   `video-gen\initialize.bat`, `Yue2\initialize.bat`. They create their own Python environments and download their
+   models. (Optional: a Forge checkout next to the hub folder, or the ComfyUI portable build pointed at from
+   Settings → Studios → Folder, adds Forge Studio and Node Studio.)
 3. Double-click **`Initialize AI Studio Hub.bat`** once. It creates a small `.venv` for the hub (FastAPI, uvicorn, httpx,
    websockets, psutil, Pillow — no PyTorch, no models).
 4. Double-click **`Start AI Studio Hub.bat`**. The browser opens `http://127.0.0.1:7900`. Close the window to stop the hub
@@ -53,8 +57,8 @@ layout used with [jrlabanza/ai-launcher](https://github.com/jrlabanza/ai-launche
   qwen-tts/             Voice Studio      (ai/qwen-tts + ai/chatterbox)
   video-generator/      Video Studio      (ai/video)
   yue2/                 Music Studio      (ai/yue2)
-  forge/                Forge Studio      (ai/forge)
-  comfyui/              Node Studio       (ai/comfyui)
+  forge/                Forge Studio      (ai/forge)     optional
+  comfyui/              Node Studio       (ai/comfyui)   optional
 ```
 
 1. Set the studios up once with their own `linux/initialize.sh` (driver, Docker + NVIDIA Container Toolkit, image,

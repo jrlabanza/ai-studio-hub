@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from . import __version__
-from .config import APP_NAME, PLATFORM, ROOT, ensure_dirs, load_settings
+from .config import APP_NAME, DEFAULT_TOOLS, PLATFORM, ROOT, ensure_dirs, load_settings, tool_present
 from .events import EventBus
 from .gpu import GpuMonitor
 from .library import Library
@@ -23,7 +23,10 @@ class Hub:
         self.bus = EventBus()
         self.gpu = GpuMonitor(interval=2.0)
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(10.0), trust_env=False)
-        self.tools: dict[str, ManagedProcess] = {tid: ManagedProcess(TOOLS[tid], self) for tid in TOOL_ORDER}
+        # The four studios of this repository are always there; optional ones (Forge, ComfyUI) only when found.
+        self.order: list[str] = [tid for tid in TOOL_ORDER if tool_present(tid)]
+        self.absent: list[str] = [tid for tid in TOOL_ORDER if tid not in self.order]
+        self.tools: dict[str, ManagedProcess] = {tid: ManagedProcess(TOOLS[tid], self) for tid in self.order}
         self.orchestrator = Orchestrator(self)
         self.library = Library(self)
         self.started_at = time.time()
@@ -76,7 +79,8 @@ class Hub:
             "system": self.gpu.snapshot,
             "gpu_history": [[round(ts), used, util] for ts, used, util in self.gpu.history],
             "tools": tools,
-            "order": TOOL_ORDER,
+            "order": self.order,
+            "absent": [{"id": tid, "name": TOOLS[tid].name, "dir": DEFAULT_TOOLS[tid]["dir"]} for tid in self.absent],
             "orchestrator": self.orchestrator.describe(),
             "theme": s.theme,
             "settings": s.to_dict(),

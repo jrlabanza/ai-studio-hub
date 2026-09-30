@@ -314,6 +314,11 @@ def create_app(hub: Hub) -> FastAPI:
             checks.append({"name": f"{t.spec.name} environment", "ok": inst, "detail": why or where})
             if inst:
                 checks.append({"name": f"{t.spec.name} models", "ok": model_ok, "detail": model_why or "present"})
+        from .tools import TOOLS
+
+        for tid in hub.absent:
+            checks.append({"name": f"{TOOLS[tid].name} (optional)", "ok": True,
+                           "detail": f"not found - put a checkout named '{DEFAULT_TOOLS[tid]['dir']}' next to the hub folder to add it"})
         return {"checks": checks, "defaults": DEFAULT_TOOLS, "python": sys.version.split()[0], "platform": PLATFORM}
 
     return app

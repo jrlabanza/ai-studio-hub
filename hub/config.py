@@ -43,11 +43,14 @@ DEFAULT_TOOLS: dict[str, dict[str, Any]] = {
               "port": 8765, "proxy_port": 7903, "autostart": False, "pinned": False},
     "music": {"enabled": True, "dir": "Yue2", "aliases": ["music-generator", "yue2", "Music Studio"],
               "port": 7860 if IS_WINDOWS else 7863, "proxy_port": 7904, "autostart": False, "pinned": False},
+    # Optional studios: not part of this repository (no submodule). They appear only when a checkout is found
+    # next to (or inside) the hub folder, or when Settings → Studios → Folder points at one.
     "forge": {"enabled": True, "dir": "forge", "aliases": ["jrlabanza-image-generator-core", "Forge", "Forge Neo",
                                                           "stable-diffusion-webui-forge"],
-              "port": 7866 if IS_WINDOWS else 7860, "proxy_port": 7905, "autostart": False, "pinned": False},
+              "port": 7866 if IS_WINDOWS else 7860, "proxy_port": 7905, "autostart": False, "pinned": False,
+              "optional": True},
     "comfy": {"enabled": True, "dir": "comfyui", "aliases": ["ComfyUI", "ComfyUI_windows_portable", "comfy"],
-              "port": 8188, "proxy_port": 7906, "autostart": False, "pinned": False},
+              "port": 8188, "proxy_port": 7906, "autostart": False, "pinned": False, "optional": True},
 }
 TOOL_KEYS = {"enabled", "dir", "port", "helper_port", "proxy_port", "autostart", "pinned", "chatterbox"}
 
@@ -161,6 +164,15 @@ def tool_dir_candidates(tool_id: str) -> list[Path]:
             if cand.is_dir() and cand not in out:
                 out.append(cand)
     return out
+
+
+def tool_present(tool_id: str) -> bool:
+    """False for an optional studio that has no checkout anywhere the hub looks (it is then left out of the shell)."""
+    if not DEFAULT_TOOLS[tool_id].get("optional"):
+        return True
+    from .tools import TOOLS
+
+    return any(TOOLS[tool_id].is_checkout(c) for c in tool_dir_candidates(tool_id))
 
 
 def tool_dir(tool_id: str) -> Path:
