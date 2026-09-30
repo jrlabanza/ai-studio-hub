@@ -24,18 +24,7 @@
         <span class="nav-label">Home</span>
       </a>
       <div class="nav-section">Studios</div>
-      <a class="nav-item nav-tool" data-view="tool" data-tool="image" href="#/tool/image" style="--tool:#1C4991">
-        <span class="nav-num">01</span><span class="nav-label">Image Studio</span><span class="nav-dot" id="navdot-image"></span>
-      </a>
-      <a class="nav-item nav-tool" data-view="tool" data-tool="tts" href="#/tool/tts" style="--tool:#34C6A3">
-        <span class="nav-num">02</span><span class="nav-label">Voice Studio</span><span class="nav-dot" id="navdot-tts"></span>
-      </a>
-      <a class="nav-item nav-tool" data-view="tool" data-tool="video" href="#/tool/video" style="--tool:#FFC23B">
-        <span class="nav-num">03</span><span class="nav-label">Video Studio</span><span class="nav-dot" id="navdot-video"></span>
-      </a>
-      <a class="nav-item nav-tool" data-view="tool" data-tool="music" href="#/tool/music" style="--tool:#11A311">
-        <span class="nav-num">04</span><span class="nav-label">Music Studio</span><span class="nav-dot" id="navdot-music"></span>
-      </a>
+      <div id="navTools"></div>
       <div class="nav-section">Everything</div>
       <a class="nav-item" data-view="library" href="#/library">
         <span class="nav-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
@@ -92,7 +81,7 @@
         <div class="hero-text">
           <div class="eyebrow">{{app}}</div>
           <h2 class="serif" id="heroTitle">Good morning.</h2>
-          <p id="heroSub">Four local studios, one graphics card, no model juggling. Open a studio and start creating - the hub loads and unloads models for you.</p>
+          <p id="heroSub">Your local studios, one graphics card, no model juggling. Open a studio and start creating - the hub loads and unloads models for you.</p>
           <div class="hero-actions">
             <a class="btn primary" href="#/tool/image">Open Image Studio</a>
             <a class="btn" href="#/library">Browse the library</a>
@@ -161,13 +150,7 @@
     <!-- ---------------------------------------------------------- library -->
     <section class="view view-library" id="view-library" hidden>
       <div class="lib-bar">
-        <div class="chips" id="libChips">
-          <button class="chip filter active" data-tool="">All</button>
-          <button class="chip filter" data-tool="image" style="--tool:#1C4991">Image</button>
-          <button class="chip filter" data-tool="tts" style="--tool:#34C6A3">Voice</button>
-          <button class="chip filter" data-tool="video" style="--tool:#FFC23B">Video</button>
-          <button class="chip filter" data-tool="music" style="--tool:#11A311">Music</button>
-        </div>
+        <div class="chips" id="libChips"><button class="chip filter active" data-tool="">All</button></div>
         <div class="lib-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="libSearch" type="search" placeholder="Search prompts, scripts, titles…"></div>
         <span class="lib-count" id="libCount"></span>
       </div>

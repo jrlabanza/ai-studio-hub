@@ -1,8 +1,8 @@
 """One library for everything the four studios have made.
 
 Reads the tools' own output folders and indexes directly (no tool has to be running): Image
-Studio's JSON sidecars, Voice Studio's history.json, Lumen's jobs.sqlite and Music Studio's song
-folders. Files are served through the hub with HTTP range support so audio and video seek.
+Studio's JSON sidecars, Voice Studio's history.json, Lumen's jobs.sqlite, Music Studio's song
+folders, and the plain output trees of Forge and ComfyUI (prompts read from the PNG metadata). Files are served through the hub with HTTP range support so audio and video seek.
 """
 from __future__ import annotations
 
@@ -37,15 +37,59 @@ def _parse_local(s: str) -> float:
 def _dir_signature(path: Path, depth: int = 1) -> tuple:
     if not path.exists():
         return ("missing",)
-    parts = [path.stat().st_mtime_ns]
+    parts: list = [path.stat().st_mtime_ns]
     if depth > 0 and path.is_dir():
         try:
             for child in path.iterdir():
                 if child.is_dir():
                     parts.append((child.name, child.stat().st_mtime_ns))
+                    if depth > 1:
+                        parts.append(_dir_signature(child, depth - 1))
         except OSError:
             pass
     return tuple(parts)
+
+
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+VIDEO_EXT = {".mp4", ".webm", ".mov", ".gif"}
+AUDIO_EXT = {".flac", ".wav", ".mp3"}
+
+
+def _png_text(path: Path) -> dict[str, str]:
+    """The text chunks of a PNG (Forge writes ``parameters``, ComfyUI ``prompt`` / ``workflow``)."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            info = getattr(img, "text", None) or {}
+            return {k: str(v) for k, v in info.items() if isinstance(v, str)}
+    except Exception:
+        return {}
+
+
+def _newest_files(root: Path, exts: set[str], limit: int = 600, max_depth: int = 4) -> list[Path]:
+    """The newest files below ``root`` (by mtime), without walking the whole tree every time."""
+    found: list[tuple[float, Path]] = []
+    if not root.is_dir():
+        return []
+    stack = [(root, 0)]
+    while stack:
+        d, depth = stack.pop()
+        try:
+            with __import__("os").scandir(d) as it:
+                for e in it:
+                    try:
+                        if e.is_dir(follow_symlinks=False):
+                            if depth < max_depth and not e.name.startswith((".", "_")):
+                                stack.append((Path(e.path), depth + 1))
+                        elif e.is_file(follow_symlinks=False) and Path(e.name).suffix.lower() in exts:
+                            found.append((e.stat().st_mtime, Path(e.path)))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    found.sort(key=lambda x: x[0], reverse=True)
+    return [p for _, p in found[:limit]]
 
 
 class Library:
@@ -119,6 +163,8 @@ class Library:
             sig = _dir_signature(outputs / "history.json", 0)
         elif tid == "video":
             sig = _dir_signature(t.tool_dir / "data" / "jobs.sqlite", 0) + _dir_signature(outputs, 0)
+        elif tid in ("forge", "comfy"):
+            sig = _dir_signature(outputs, 2)
         else:
             sig = _dir_signature(outputs, 1)
         cached = self._cache.get(tid)
@@ -130,7 +176,7 @@ class Library:
             return cached[2]
         try:
             items = {"image": self._scan_image, "tts": self._scan_tts, "video": self._scan_video,
-                     "music": self._scan_music}[tid](t.tool_dir, outputs)
+                     "music": self._scan_music, "forge": self._scan_forge, "comfy": self._scan_comfy}[tid](t.tool_dir, outputs)
         except Exception:
             items = cached[2] if cached else []
         self._cache[tid] = (sig, now, items)
@@ -269,6 +315,75 @@ class Library:
                 "download": f"/media/music/{d.name}/audio.flac?download=1", "thumb": None, "duration": secs,
                 "size": audio.stat().st_size, "versions": versions, "has_score": (d / "score.abc").is_file(),
                 "lyrics": str(request.get("lyrics") or "")[:2000], "folder": str(d),
+            })
+        return items
+
+
+    def _scan_forge(self, tool_dir: Path, outputs: Path) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for file in _newest_files(outputs, IMAGE_EXT | VIDEO_EXT):
+            rel = file.relative_to(outputs).as_posix()
+            kind = "video" if file.suffix.lower() in VIDEO_EXT else "image"
+            meta = _png_text(file) if file.suffix.lower() == ".png" else {}
+            params = meta.get("parameters", "")
+            prompt = params.split("\nNegative prompt:")[0].split("\nSteps:")[0].strip() if params else ""
+            model = ""
+            for part in params.split("\n")[-1].split(", ") if params else []:
+                if part.startswith("Model: "):
+                    model = part[7:]
+            w = h = None
+            if kind == "image":
+                try:
+                    from PIL import Image
+
+                    with Image.open(file) as img:
+                        w, h = img.size
+                except Exception:
+                    pass
+            folder = file.parent.name
+            sub = " · ".join(x for x in (folder.replace("-", " "), f"{w}×{h}" if w and h else "") if x)
+            items.append({
+                "id": f"forge:{rel}", "tool": "forge", "kind": kind, "title": prompt[:300] or file.stem, "subtitle": sub,
+                "model": model or "Forge", "created": file.stat().st_mtime, "url": f"/media/forge/{rel}",
+                "download": f"/media/forge/{rel}?download=1",
+                "thumb": f"/api/thumb?tool=forge&path={rel}" if kind == "image" else None,
+                "width": w, "height": h, "size": file.stat().st_size, "folder": str(file.parent),
+            })
+        return items
+
+    def _scan_comfy(self, tool_dir: Path, outputs: Path) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for file in _newest_files(outputs, IMAGE_EXT | VIDEO_EXT | AUDIO_EXT):
+            rel = file.relative_to(outputs).as_posix()
+            ext = file.suffix.lower()
+            kind = "video" if ext in VIDEO_EXT else ("audio" if ext in AUDIO_EXT else "image")
+            meta = _png_text(file) if ext == ".png" else {}
+            prompt = ""
+            if meta.get("prompt"):
+                try:
+                    graph = json.loads(meta["prompt"])
+                    texts = [str(n.get("inputs", {}).get("text", "")) for n in graph.values()
+                             if isinstance(n, dict) and "text" in (n.get("inputs") or {})]
+                    texts = [t.strip() for t in texts if t.strip()]
+                    prompt = max(texts, key=len) if texts else ""
+                except Exception:
+                    prompt = ""
+            w = h = None
+            if kind == "image":
+                try:
+                    from PIL import Image
+
+                    with Image.open(file) as img:
+                        w, h = img.size
+                except Exception:
+                    pass
+            sub = " · ".join(x for x in (file.parent.name if file.parent != outputs else "", f"{w}×{h}" if w and h else "") if x)
+            items.append({
+                "id": f"comfy:{rel}", "tool": "comfy", "kind": kind, "title": prompt[:300] or file.stem, "subtitle": sub,
+                "model": "ComfyUI", "created": file.stat().st_mtime, "url": f"/media/comfy/{rel}",
+                "download": f"/media/comfy/{rel}?download=1",
+                "thumb": f"/api/thumb?tool=comfy&path={rel}" if kind == "image" else None,
+                "width": w, "height": h, "size": file.stat().st_size, "folder": str(file.parent),
             })
         return items
 

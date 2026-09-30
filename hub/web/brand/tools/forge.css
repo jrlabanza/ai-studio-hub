@@ -1,0 +1,32 @@
+/* Hub theme for Forge Studio (Stable Diffusion WebUI Forge - a Gradio 4 app). Maps Gradio's theme
+   variables; Forge's own layout, panels and controls are untouched. */
+html:root[data-hub-theme="light"] {
+  --body-background-fill: #F4F6F9; --background-fill-primary: #FFFFFF; --background-fill-secondary: #F7F8FA;
+  --block-background-fill: #FFFFFF; --panel-background-fill: #F7F8FA; --input-background-fill: #FFFFFF;
+  --border-color-primary: rgba(7, 25, 58, .12); --block-border-color: rgba(7, 25, 58, .12);
+  --input-border-color: rgba(7, 25, 58, .2); --body-text-color: #07193A; --body-text-color-subdued: #6B7A93;
+  --block-label-text-color: #2B3B5C; --block-title-text-color: #07193A;
+  --button-primary-background-fill: #1C4991; --button-primary-background-fill-hover: #2C6BC4;
+  --button-primary-border-color: #1C4991; --button-primary-text-color: #FFFFFF;
+  --button-secondary-background-fill: #EEF1F5; --button-secondary-text-color: #07193A;
+  --checkbox-background-color-selected: #1C4991; --slider-color: #1C4991; --link-text-color: #1C4991;
+  --color-accent: #1C4991; --color-accent-soft: rgba(28, 73, 145, .12);
+  --block-radius: 10px; --button-large-radius: 9px; --button-small-radius: 7px; --input-radius: 8px;
+}
+html:root[data-hub-theme="dark"] {
+  --body-background-fill: #061027; --background-fill-primary: #0B1B3B; --background-fill-secondary: #10244D;
+  --block-background-fill: #0B1B3B; --panel-background-fill: #10244D; --input-background-fill: #081633;
+  --border-color-primary: rgba(255, 255, 255, .1); --block-border-color: rgba(255, 255, 255, .1);
+  --input-border-color: rgba(255, 255, 255, .18); --body-text-color: #F2F5FA; --body-text-color-subdued: #8FA1BF;
+  --block-label-text-color: #C9D4E6; --block-title-text-color: #F2F5FA;
+  --button-primary-background-fill: #3F6FD1; --button-primary-background-fill-hover: #5A88E6;
+  --button-primary-border-color: #3F6FD1; --button-primary-text-color: #FFFFFF;
+  --button-secondary-background-fill: #162D5C; --button-secondary-text-color: #F2F5FA;
+  --checkbox-background-color-selected: #3F6FD1; --slider-color: #34C6A3; --link-text-color: #9dbcf5;
+  --color-accent: #3F6FD1; --color-accent-soft: rgba(63, 111, 209, .2);
+  --block-radius: 10px; --button-large-radius: 9px; --button-small-radius: 7px; --input-radius: 8px;
+}
+html:root[data-hub-theme] body, html:root[data-hub-theme] gradio-app { background: var(--body-background-fill) !important; }
+/* The shell already names the studio: hide Forge's own title/tab strip decoration, keep the tabs. */
+html:root[data-hub-theme] #tabs > .tab-nav { border-bottom-color: var(--border-color-primary); }
+html:root[data-hub-theme] #footer, html:root[data-hub-theme] .footer { display: none !important; }

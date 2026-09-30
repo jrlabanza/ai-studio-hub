@@ -11,9 +11,9 @@
     lib: { tool: "", q: "", items: [], offset: 0, total: 0, loading: false, counts: {} }, libTimer: null,
     settingsDirty: false, recentLoadedAt: 0, lastToast: { text: "", at: 0 }, focusSent: null,
   };
-  const TOOL_NAMES = { image: "Image Studio", tts: "Voice Studio", video: "Video Studio", music: "Music Studio" };
-  const TOOL_COLORS = { image: "#1C4991", tts: "#34C6A3", video: "#FFC23B", music: "#11A311" };
-  const TOOL_NUMS = { image: "01", tts: "02", video: "03", music: "04" };
+  // Names, colours and numbers come from the hub (hub/tools.py); these maps are filled from the first state.
+  const TOOL_NAMES = {}, TOOL_COLORS = {}, TOOL_NUMS = {};
+  const nameOf = (id) => TOOL_NAMES[id] || id;
 
   // ------------------------------------------------------------------ helpers
   const api = async (url, opts = {}) => {
@@ -37,6 +37,19 @@
   const fmtDur = (sec) => { if (sec == null || isNaN(sec)) return ""; sec = Math.round(sec); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`; };
   const fmtEta = (sec) => { if (sec == null) return ""; sec = Math.round(sec); return sec >= 60 ? `${Math.floor(sec / 60)} min ${sec % 60}s left` : `${sec}s left`; };
   const toolOf = (id) => S.state && S.state.tools[id];
+
+  function learnTools(st) {
+    for (const [id, t] of Object.entries(st.tools || {})) { TOOL_NAMES[id] = t.name; TOOL_COLORS[id] = t.color; TOOL_NUMS[id] = t.number; }
+    const nav = $("#navTools");
+    if (nav && nav.dataset.built !== st.order.join(",")) {
+      nav.dataset.built = st.order.join(",");
+      nav.innerHTML = st.order.map((id, i) => { const t = st.tools[id]; return `<a class="nav-item nav-tool" data-view="tool" data-tool="${id}" href="#/tool/${id}" style="--tool:${t.color}" title="${esc(t.name)} (Alt+${i + 1})">
+        <span class="nav-num">${esc(t.number)}</span><span class="nav-label">${esc(t.name)}</span><span class="nav-dot" id="navdot-${id}"></span></a>`; }).join("");
+      const chips = $("#libChips");
+      chips.querySelectorAll(".chip[data-tool]:not([data-tool=''])").forEach((c) => c.remove());
+      chips.insertAdjacentHTML("beforeend", st.order.map((id) => `<button class="chip filter" data-tool="${id}" style="--tool:${st.tools[id].color}">${esc(st.tools[id].short)}</button>`).join(""));
+    }
+  }
   const proxyUrl = (t) => `${location.protocol}//${location.hostname}:${t.proxy_port}/`;
   const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning." : h < 18 ? "Good afternoon." : "Good evening."; };
 
@@ -79,11 +92,11 @@
       a.classList.toggle("active", active);
     });
     const num = $("#topNum");
-    if (view === "tool" && tool && TOOL_NAMES[tool]) {
+    if (view === "tool" && tool) {
       S.tool = tool;
-      $("#topTitle").textContent = TOOL_NAMES[tool];
-      num.hidden = false; num.textContent = TOOL_NUMS[tool]; num.style.setProperty("--tool", TOOL_COLORS[tool]);
       const t = toolOf(tool);
+      $("#topTitle").textContent = t ? t.name : nameOf(tool);
+      num.hidden = false; num.textContent = t ? t.number : ""; num.style.setProperty("--tool", t ? t.color : "var(--muted)");
       $("#topSub").textContent = t ? t.tagline : "";
       mountTool(tool);
       sendFocus(tool);
@@ -91,7 +104,7 @@
       S.tool = null;
       num.hidden = true;
       $("#topTitle").textContent = { home: "Home", library: "Library", settings: "Settings" }[view] || "Home";
-      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything the four studios have made", settings: "How the hub shares the GPU" }[view] || "";
+      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", settings: "How the hub shares the GPU" }[view] || "";
       sendFocus(null);
       if (view === "library") loadLibrary(true);
       if (view === "settings") renderSettings(true);
@@ -163,6 +176,7 @@
   function onState(st) {
     const first = !S.state;
     S.state = st;
+    learnTools(st);
     document.body.classList.remove("booting");
     renderTop();
     renderNav();
@@ -179,7 +193,7 @@
     const owner = st.orchestrator.owner;
     const chip = $("#chipOwner");
     chip.classList.toggle("has-owner", !!owner);
-    $("#chipOwnerText").textContent = owner ? `GPU → ${TOOL_NAMES[owner] || owner}` : "GPU free";
+    $("#chipOwnerText").textContent = owner ? `GPU → ${nameOf(owner)}` : "GPU free";
     if (g.available) {
       const pct = g.total_mb ? (g.used_mb / g.total_mb) * 100 : 0;
       const fill = $("#meterVramFill");
@@ -216,7 +230,7 @@
     const s = t.summary;
     if (s.busy) return ["busy", "Working"];
     if (s.state === "loading") return ["loading", "Loading"];
-    if (s.state === "ready") return ["ready", t.id === "music" ? "Ready" : "Model ready"];
+    if (s.state === "ready") return ["ready", t.supports_unload === false ? "Ready" : "Model ready"];
     if (s.state === "error") return ["error", "Model error"];
     return ["running", "Idle"];
   }
@@ -237,14 +251,14 @@
     $("#gpuName").textContent = g.available ? g.name : "No NVIDIA GPU detected";
     const pill = $("#gpuOwnerPill");
     pill.className = `pill ${orch.owner ? "owner" : ""}`;
-    pill.textContent = orch.owner ? `Held by ${TOOL_NAMES[orch.owner]}` : "Free";
+    pill.textContent = orch.owner ? `Held by ${nameOf(orch.owner)}` : "Free";
     if (g.available) {
       $("#vramFree").textContent = gb(g.free_mb) + " free";
       $("#vramTotal").textContent = `of ${gb(g.total_mb)}`;
       // Windows does not report VRAM per process, so the card shows what is in use overall and who holds the GPU.
       $("#segTools").style.width = `${(g.used_mb / g.total_mb) * 100}%`;
       $("#segOther").style.width = "0";
-      $("#legTools").textContent = gb(g.used_mb) + (orch.owner ? ` · ${TOOL_NAMES[orch.owner]}` : "");
+      $("#legTools").textContent = gb(g.used_mb) + (orch.owner ? ` · ${nameOf(orch.owner)}` : "");
       $("#legFree").textContent = gb(g.free_mb);
       $("#factUtil").textContent = `${g.util}% · ${g.temp}°C${g.power_w ? ` · ${g.power_w} W` : ""}`;
     } else {
@@ -316,8 +330,9 @@
       const noteText = !t.installed ? t.install_note : (!t.model_present && t.model_note ? t.model_note : "");
       note.hidden = !noteText; note.textContent = noteText;
       const running = t.state === "running";
-      $('[data-act="unload"]', card).hidden = !(running && s.loaded && !s.busy && id !== "music");
-      $('[data-act="warm"]', card).hidden = !(t.installed && t.enabled && !s.busy && !(running && s.loaded && t.is_owner) && id !== "music");
+      const unloadable = t.supports_unload !== false;
+      $('[data-act="unload"]', card).hidden = !(running && s.loaded && !s.busy && unloadable);
+      $('[data-act="warm"]', card).hidden = !(t.installed && t.enabled && !s.busy && !(running && s.loaded && t.is_owner) && unloadable);
       $('[data-act="start"]', card).hidden = !(t.installed && t.enabled && (t.state === "stopped" || t.state === "error"));
       $('[data-act="stop"]', card).hidden = !(running || t.state === "starting");
       $('[data-act="open"]', card).disabled = !t.enabled || !t.installed;
@@ -382,9 +397,9 @@
         toast(`GPU → ${ev.name}`, ev.warning ? "warn" : "ok", ev.warning || (acts ? `${acts}` : "nothing to unload"));
       } else toast("GPU freed", "ok", (ev.actions || []).join(", "));
     } else if (ev.type === "waiting") {
-      toast(`${TOOL_NAMES[ev.tool]} is waiting for ${(ev.for || []).map((x) => TOOL_NAMES[x]).join(", ")} to finish`, "warn", "Your request is queued and starts automatically.", 8000);
+      toast(`${nameOf(ev.tool)} is waiting for ${(ev.for || []).map(nameOf).join(", ")} to finish`, "warn", "Your request is queued and starts automatically.", 8000);
     } else if (ev.type === "tool") {
-      const name = TOOL_NAMES[ev.tool] || ev.tool;
+      const name = nameOf(ev.tool);
       if (ev.state === "error" && ev.error) toast(`${name}: ${ev.error.split("\n")[0]}`, "error", "", 9000);
       else if (ev.state === "running") toast(`${name} is ready`, "ok");
     } else if (ev.type === "log" && (ev.level === "error" || ev.level === "warn") && ev.source) {
@@ -399,16 +414,16 @@
     const evs = S.events.filter((e) => e.type === "log" || e.type === "claim" || e.type === "waiting").slice(-limit).reverse();
     ul.innerHTML = evs.map((e) => {
       const who = e.tool ? (toolOf(e.tool) ? toolOf(e.tool).short : e.tool) : (e.source === "orchestrator" ? "GPU" : "Hub");
-      const color = e.tool ? TOOL_COLORS[e.tool] : "var(--muted)";
-      const text = e.type === "claim" ? (e.tool ? `GPU handed to ${e.name}${e.actions && e.actions.length ? " - " + e.actions.join(", ") : ""}` : `GPU freed - ${(e.actions || []).join(", ")}`) : e.type === "waiting" ? `${TOOL_NAMES[e.tool]} waits for ${(e.for || []).map((x) => TOOL_NAMES[x]).join(", ")}` : e.message;
+      const color = e.tool ? (TOOL_COLORS[e.tool] || "var(--muted)") : "var(--muted)";
+      const text = e.type === "claim" ? (e.tool ? `GPU handed to ${e.name}${e.actions && e.actions.length ? " - " + e.actions.join(", ") : ""}` : `GPU freed - ${(e.actions || []).join(", ")}`) : e.type === "waiting" ? `${nameOf(e.tool)} waits for ${(e.for || []).map(nameOf).join(", ")}` : e.message;
       return `<li class="${esc(e.level || "")}"><time>${fmtTime(e.ts)}</time><span class="who" style="--tool:${color}">${esc(who)}</span><span class="msg">${esc(text)}</span></li>`;
     }).join("") || `<li><time></time><span class="who">Hub</span><span class="msg" style="color:var(--muted)">Nothing yet.</span></li>`;
   }
 
   // ------------------------------------------------------------------ library
   function mediaCard(it) {
-    const color = TOOL_COLORS[it.tool];
-    const kindLabel = { image: "image", audio: "voice", video: "video", song: "song" }[it.kind] || it.kind;
+    const color = TOOL_COLORS[it.tool] || "var(--muted)";
+    const kindLabel = { image: "image", audio: it.tool === "tts" ? "voice" : "audio", video: "video", song: "song" }[it.kind] || it.kind;
     let thumb;
     if (it.kind === "image" || (it.kind === "video" && it.thumb)) {
       thumb = `<div class="media-thumb"><img loading="lazy" src="${esc(it.thumb || it.url)}" alt="">${it.kind === "video" ? `<span class="play"><svg viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></svg></span>` : ""}${it.duration ? `<span class="dur">${fmtDur(it.duration)}</span>` : ""}</div>`;
@@ -452,24 +467,24 @@
   }
 
   function openViewer(it) {
-    const color = TOOL_COLORS[it.tool];
+    const color = TOOL_COLORS[it.tool] || "var(--muted)";
     let media;
     if (it.kind === "image") media = `<div class="viewer-media"><img src="${esc(it.url)}" alt=""></div>`;
     else if (it.kind === "video") media = `<div class="viewer-media"><video src="${esc(it.url)}" controls autoplay playsinline></video></div>`;
     else media = `<div class="viewer-media audio" style="--tool:${color}"><div><div class="viewer-audio-art">${it.kind === "song" ? "♪" : "🎙"}</div><audio id="viewerAudio" src="${esc(it.url)}" controls autoplay></audio></div></div>`;
-    const kv = [["Studio", TOOL_NAMES[it.tool]], ["Model", it.model], ["Created", new Date(it.created * 1000).toLocaleString()],
+    const kv = [["Studio", nameOf(it.tool)], ["Model", it.model], ["Created", new Date(it.created * 1000).toLocaleString()],
       it.width ? ["Size", `${it.width} × ${it.height}`] : null, it.duration ? ["Length", fmtDur(it.duration)] : null, it.size ? ["File", (it.size / 1048576).toFixed(1) + " MB"] : null]
       .filter(Boolean).map(([k, v]) => `<dt>${esc(k)}</dt><dd title="${esc(v)}">${esc(v)}</dd>`).join("");
     const versions = (it.versions || []).map((v) => `<button class="btn small" data-src="${esc(v.url)}">${esc(v.name)}</button>`).join("");
     openModal(`<div class="viewer">${media}<div class="viewer-side" style="--tool:${color}">
-      <div class="eyebrow" style="color:${color}">${esc(TOOL_NAMES[it.tool])}</div>
+      <div class="eyebrow" style="color:${color}">${esc(nameOf(it.tool))}</div>
       <h3>${esc(it.title)}</h3><div style="color:var(--muted);font-size:14px">${esc(it.subtitle)}</div>
       <dl class="kv">${kv}</dl>
       ${versions ? `<div class="eyebrow">Versions</div><div class="versions"><button class="btn small" data-src="${esc(it.url)}">original</button>${versions}</div>` : ""}
       ${it.lyrics ? `<div class="eyebrow">Lyrics</div><div class="lyrics">${esc(it.lyrics)}</div>` : ""}
       <div class="viewer-actions"><a class="btn primary" href="${esc(it.download)}">Download</a>
         <button class="btn" id="viewerFolder">Open folder</button>
-        <a class="btn ghost" href="#/tool/${esc(it.tool)}" id="viewerOpenTool">Open ${esc(TOOL_NAMES[it.tool])}</a></div>
+        <a class="btn ghost" href="#/tool/${esc(it.tool)}" id="viewerOpenTool">Open ${esc(nameOf(it.tool))}</a></div>
     </div></div>`);
     $("#viewerFolder").onclick = () => api("/api/library/open", { method: "POST", body: { folder: it.folder } }).catch((e) => toast(e.message, "error"));
     $("#viewerOpenTool").onclick = closeModal;
@@ -478,7 +493,7 @@
 
   // ------------------------------------------------------------------ settings
   const SETTINGS_SCHEMA = [
-    { title: "Graphics card", lead: "How the hub shares one GPU between the four studios.", fields: [
+    { title: "Graphics card", lead: "How the hub shares one GPU between your studios.", fields: [
       { key: "gpu_policy", label: "Sharing policy", type: "select", options: [["auto", "Automatic (recommended)"], ["exclusive", "One model at a time"], ["budget", "Share when it fits"]], help: "Automatic keeps one model at a time on cards under 20 GB and lets small models share on bigger cards." },
       { key: "prepare_on_switch", label: "Load ahead when I switch studios", type: "bool", help: "A few seconds after you open a studio its model is loaded (and the others unloaded) so Generate is instant." },
       { key: "prepare_delay_s", label: "Delay before loading ahead", type: "number", step: 0.5, min: 0.5, max: 60, unit: "s" },
@@ -494,7 +509,7 @@
       { key: "brand_fonts_in_tools", label: "Hub font inside the studios", type: "bool", help: "Use the hub's font (Inter) for headings and buttons inside the tools." },
     ] },
     { title: "Network", lead: "Changes here need a restart of the hub.", fields: [
-      { key: "bind_host", label: "Listen on", type: "select", options: [["127.0.0.1", "This PC only"], ["0.0.0.0", "Everyone on my network"]], help: "Sharing on the network also needs a Windows Firewall rule (see README)." },
+      { key: "bind_host", label: "Listen on", type: "select", options: [["127.0.0.1", "This PC only"], ["0.0.0.0", "Everyone on my network"]], help: "Sharing on the network also needs a firewall rule for ports 7900-7906 (see README)." },
       { key: "hub_port", label: "Hub port", type: "number", step: 1, min: 1024, max: 65535 },
       { key: "open_browser", label: "Open the browser on start", type: "bool" },
       { key: "stop_tools_on_exit", label: "Stop all studios when the hub closes", type: "bool" },
@@ -510,8 +525,8 @@
         ${sec.fields.map((f) => `<div class="field" data-key="${f.key}"><label>${esc(f.label)}</label>${f.help ? `<div class="help">${esc(f.help)}</div>` : ""}<div class="control">${control(f, s[f.key])}</div></div>`).join("")}</section>`).join("")
         + `<section class="card"><h3>Studios</h3><p class="lead">Ports are used on this PC only; the shell talks to the entrance port. Pinned studios are never stopped for being idle.</p><div class="tool-settings" id="toolSettings"></div></section>`
         + `<section class="card"><h3>Check-up</h3><p class="lead">What the hub found on this PC.</p><ul class="doctor" id="doctorList"><li>Loading…</li></ul></section>`
-        + `<section class="card"><h3>Keyboard</h3><p class="lead">Shortcuts work anywhere in the shell.</p><div class="shortcuts"><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>4</kbd><span>Open a studio</span><kbd>Alt</kbd>+<kbd>H</kbd><span>Home</span><kbd>Alt</kbd>+<kbd>L</kbd><span>Library</span><kbd>Alt</kbd>+<kbd>A</kbd><span>Activity</span><kbd>Alt</kbd>+<kbd>T</kbd><span>Theme</span><kbd>Alt</kbd>+<kbd>G</kbd><span>Free the GPU</span></div>
-          <p class="lead" style="margin-top:14px">${esc(st.app.name)} ${esc(st.app.version)} · hub on port ${st.app.hub_port} · <a href="/api/docs" target="_blank">API</a></p></section>`;
+        + `<section class="card"><h3>Keyboard</h3><p class="lead">Shortcuts work anywhere in the shell.</p><div class="shortcuts"><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>${S.state.order.length}</kbd><span>Open a studio</span><kbd>Alt</kbd>+<kbd>H</kbd><span>Home</span><kbd>Alt</kbd>+<kbd>L</kbd><span>Library</span><kbd>Alt</kbd>+<kbd>A</kbd><span>Activity</span><kbd>Alt</kbd>+<kbd>T</kbd><span>Theme</span><kbd>Alt</kbd>+<kbd>G</kbd><span>Free the GPU</span></div>
+          <p class="lead" style="margin-top:14px">${esc(st.app.name)} ${esc(st.app.version)} · ${esc(st.app.platform || "")} · hub on port ${st.app.hub_port} · <a href="/api/docs" target="_blank">API</a></p></section>`;
       grid.querySelectorAll(".field").forEach((f) => f.addEventListener("change", onSettingChange));
       grid.querySelectorAll(".switch").forEach((b) => b.addEventListener("click", () => { b.classList.toggle("on"); onSettingChange({ currentTarget: b.closest(".field, .tool-row"), target: b }); }));
       loadDoctor();
@@ -547,12 +562,13 @@
     const host = $("#toolSettings"); if (!host) return;
     host.innerHTML = S.state.order.map((id) => { const t = toolOf(id), c = s.tools[id] || {}; return `<div class="tool-row" data-tool="${id}" style="--tool:${t.color}">
       <div class="tool-num">${t.number}</div>
-      <div class="row-main"><b>${esc(t.name)}</b><small title="${esc(t.dir)}">${esc(t.dir)}</small><small>backend :${esc(c.port)} · entrance :${esc(t.proxy_port)} · ${t.installed ? "installed" : "not set up"}</small></div>
+      <div class="row-main"><b>${esc(t.name)}</b><small title="${esc(t.dir)}">${esc(t.dir)}</small><small>backend :${esc(t.port || c.port)} · entrance :${esc(t.proxy_port)} · ${t.installed ? (t.backend === "docker" ? "container " + esc(t.container) : "installed") : "not set up"}</small></div>
       <div class="row-ctl">
         <label>Enabled <button type="button" class="switch ${c.enabled ? "on" : ""}" data-tkey="enabled"></button></label>
         <label>Start with hub <button type="button" class="switch ${c.autostart ? "on" : ""}" data-tkey="autostart"></button></label>
         <label>Pinned <button type="button" class="switch ${c.pinned ? "on" : ""}" data-tkey="pinned"></button></label>
-        <label>Port <input type="number" data-tkey="port" value="${esc(c.port)}" min="1024" max="65535"></label>
+        ${id === "tts" ? `<label title="Also start the Chatterbox clone engine with Voice Studio">Chatterbox <button type="button" class="switch ${c.chatterbox !== false ? "on" : ""}" data-tkey="chatterbox"></button></label>` : ""}
+        ${t.port_fixed ? `<label title="Set by the studio's linux/compose.yml">Port <input type="number" value="${esc(t.port)}" disabled></label>` : `<label>Port <input type="number" data-tkey="port" value="${esc(c.port)}" min="1024" max="65535"></label>`}
         <label class="wide">Folder <input type="text" data-tkey="dir" value="${esc(c.dir || "")}" placeholder="folder name or full path" title="Folder name inside (or next to) the hub folder, or a full path"></label>
       </div></div>`; }).join("");
     host.querySelectorAll(".switch").forEach((b) => b.addEventListener("click", async () => {
@@ -615,7 +631,7 @@
     $("#btnFreeGpu").onclick = async () => { try { const r = await api("/api/gpu/free", { method: "POST", body: {} }); if (!r.actions.length) toast("The GPU is already free", "ok"); } catch (e) { toast(e.message, "error"); } };
     $$("[data-global]").forEach((b) => b.onclick = async () => {
       const stop = b.dataset.global === "free-stop";
-      if (stop && !confirm("Stop all four studios? Running jobs would be interrupted.")) return;
+      if (stop && !confirm("Stop every studio? Running jobs would be interrupted.")) return;
       try { await api("/api/gpu/free", { method: "POST", body: { stop } }); } catch (e) { toast(e.message, "error"); }
     });
     $("#overlayStart").onclick = () => { if (S.tool) api(`/api/tools/${S.tool}/start`, { method: "POST" }).then(() => { const f = S.frames[S.tool]; if (f) f.src = proxyUrl(toolOf(S.tool)); }).catch((e) => toast(e.message, "error")); };
@@ -631,7 +647,8 @@
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") { closeModal(); toggleDrawer(false); closeMenu(); return; }
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
-      const map = { 1: "#/tool/image", 2: "#/tool/tts", 3: "#/tool/video", 4: "#/tool/music", h: "#/home", l: "#/library" };
+      const map = { h: "#/home", l: "#/library" };
+      if (S.state) S.state.order.forEach((id, i) => { map[String(i + 1)] = `#/tool/${id}`; });
       const k = e.key.toLowerCase();
       if (map[k]) { location.hash = map[k]; e.preventDefault(); }
       else if (k === "a") { toggleDrawer(); e.preventDefault(); }

@@ -15,7 +15,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from . import __version__
-from .config import APP_NAME, BRAND_DIR, DEFAULT_TOOLS, WEB_DIR, load_settings, save_settings
+from . import docker as dk
+from .config import APP_NAME, BRAND_DIR, DEFAULT_TOOLS, PLATFORM, WEB_DIR, load_settings, save_settings
 from .core import Hub
 from .process import pick_free_port
 
@@ -252,7 +253,7 @@ def create_app(hub: Hub) -> FastAPI:
         info = await hub.gpu.refresh(with_processes=True)
         procs = []
         for p in info.processes:
-            owner = next((t.id for t in hub.tools.values() if t.pid and p["pid"] == t.pid), None)
+            owner = next((t.id for t in hub.tools.values() if t.owns_pid(p["pid"])), None)
             procs.append({**p, "tool": owner})
         return {"processes": procs, "used_mb": info.used_mb, "total_mb": info.total_mb}
 
@@ -301,12 +302,18 @@ def create_app(hub: Hub) -> FastAPI:
         g = hub.gpu.latest
         checks = [{"name": "NVIDIA GPU", "ok": g.available,
                    "detail": f"{g.name} · {g.total_mb / 1024:.0f} GB · driver {g.driver}" if g.available else "nvidia-smi not found"}]
+        if PLATFORM == "linux":
+            checks.append({"name": "Docker", "ok": dk.available(),
+                           "detail": " ".join(dk.docker() or []) or "not reachable - install Docker + NVIDIA Container Toolkit (any studio's linux/initialize.sh does it)"})
         for t in hub.tools.values():
-            inst, why = t.spec.installed(t.tool_dir)
-            model_ok, model_why = t.spec.model_present(t.tool_dir) if inst else (False, "")
-            checks.append({"name": f"{t.spec.name} environment", "ok": inst, "detail": why or str(t.spec.python(t.tool_dir))})
+            tdir = t.tool_dir
+            inst, why = t.spec.installed(tdir)
+            model_ok, model_why = t.spec.model_present(tdir) if inst else (False, "")
+            backend = t.spec.backend(tdir)
+            where = f"container image ai/{t.spec.docker_service}:latest · {tdir}" if backend == "docker" else str(t.spec.python(tdir))
+            checks.append({"name": f"{t.spec.name} environment", "ok": inst, "detail": why or where})
             if inst:
                 checks.append({"name": f"{t.spec.name} models", "ok": model_ok, "detail": model_why or "present"})
-        return {"checks": checks, "defaults": DEFAULT_TOOLS, "python": sys.version.split()[0]}
+        return {"checks": checks, "defaults": DEFAULT_TOOLS, "python": sys.version.split()[0], "platform": PLATFORM}
 
     return app

@@ -1,0 +1,6 @@
+# Hub override for Image Studio's linux/compose.yml (merged with it by `docker compose -f a -f b`).
+# The container's entrypoint passes extra arguments on to the server: start it without loading
+# Qwen-Image so the model only takes the GPU when the hub hands it over (Generate, Warm up).
+services:
+  qwen-image:
+    command: ["--no-autoload"]

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -20,22 +21,35 @@ THUMBS_DIR = DATA_DIR / "thumbs"
 WEB_DIR = HUB_DIR / "web"
 BRAND_DIR = WEB_DIR / "brand"
 SETTINGS_FILE = DATA_DIR / "settings.json"
+PID_FILE = DATA_DIR / "hub.pid"
 
 APP_NAME = "AI Studio Hub"
+IS_WINDOWS = sys.platform == "win32"
+PLATFORM = "windows" if IS_WINDOWS else ("linux" if sys.platform.startswith("linux") else sys.platform)
 
-# Per-tool defaults. ``dir`` is relative to ROOT unless absolute. ``port`` is the tool's own
+# Per-tool defaults. ``dir`` is the folder name inside the hub (the git-submodule layout) or next to
+# it; ``aliases`` are the other names the same repository is commonly checked out under (its GitHub
+# name, the name the Linux ``~/AI`` layout uses) and are searched too. ``port`` is the tool's own
 # backend port (loopback only); ``proxy_port`` is the branded, orchestrated entrance the shell embeds.
+# On Linux the studios run in containers whose ports are fixed by their compose files, so the
+# defaults differ per platform (7860 belongs to Forge there, not to Music Studio).
 DEFAULT_TOOLS: dict[str, dict[str, Any]] = {
-    "image": {"enabled": True, "dir": "Image gen", "port": 7970, "proxy_port": 7901, "autostart": False,
-              "pinned": False},
-    "tts": {"enabled": True, "dir": "qwen tts", "port": 7861, "helper_port": 7862, "proxy_port": 7902,
-            "autostart": False, "pinned": False},
-    "video": {"enabled": True, "dir": "video-gen", "port": 8765, "proxy_port": 7903, "autostart": False,
-              "pinned": False},
-    "music": {"enabled": True, "dir": "Yue2", "port": 7860, "proxy_port": 7904, "autostart": False,
-              "pinned": False},
+    "image": {"enabled": True, "dir": "Image gen", "aliases": ["qwen-image-studio", "image-gen", "Image Studio"],
+              "port": 7970 if IS_WINDOWS else 7864, "proxy_port": 7901, "autostart": False, "pinned": False},
+    "tts": {"enabled": True, "dir": "qwen tts", "aliases": ["tts-generator", "qwen-tts", "Voice Studio"],
+            "port": 7861, "helper_port": 7862, "proxy_port": 7902, "autostart": False, "pinned": False,
+            "chatterbox": True},
+    "video": {"enabled": True, "dir": "video-gen", "aliases": ["video-generator", "lumen", "Video Studio"],
+              "port": 8765, "proxy_port": 7903, "autostart": False, "pinned": False},
+    "music": {"enabled": True, "dir": "Yue2", "aliases": ["music-generator", "yue2", "Music Studio"],
+              "port": 7860 if IS_WINDOWS else 7863, "proxy_port": 7904, "autostart": False, "pinned": False},
+    "forge": {"enabled": True, "dir": "forge", "aliases": ["jrlabanza-image-generator-core", "Forge", "Forge Neo",
+                                                          "stable-diffusion-webui-forge"],
+              "port": 7866 if IS_WINDOWS else 7860, "proxy_port": 7905, "autostart": False, "pinned": False},
+    "comfy": {"enabled": True, "dir": "comfyui", "aliases": ["ComfyUI", "ComfyUI_windows_portable", "comfy"],
+              "port": 8188, "proxy_port": 7906, "autostart": False, "pinned": False},
 }
-TOOL_KEYS = {"enabled", "dir", "port", "helper_port", "proxy_port", "autostart", "pinned"}
+TOOL_KEYS = {"enabled", "dir", "port", "helper_port", "proxy_port", "autostart", "pinned", "chatterbox"}
 
 
 def ensure_dirs() -> None:
@@ -130,20 +144,46 @@ def tool_cfg(tool_id: str) -> dict[str, Any]:
     return load_settings().tools.get(tool_id) or copy.deepcopy(DEFAULT_TOOLS[tool_id])
 
 
-def tool_dir(tool_id: str) -> Path:
-    """Where a tool lives: an absolute path from Settings, or a folder inside this hub's folder (the
-    git-submodule layout), or the same folder name beside the hub's folder (the sibling layout).
-
-    When both exist - e.g. an un-set-up submodule checkout inside plus an installed copy next to the
-    hub - the copy that is actually set up (has its Python environment) wins.
-    """
+def tool_dir_candidates(tool_id: str) -> list[Path]:
+    """Every folder the tool could live in, in order of preference."""
     cfg = tool_cfg(tool_id)
     p = Path(cfg.get("dir") or DEFAULT_TOOLS[tool_id]["dir"])
     if p.is_absolute():
-        return p
-    candidates = [base / p for base in (ROOT, ROOT.parent) if (base / p).is_dir()]
+        return [p]
+    names: list[str] = [str(p)]
+    for alias in [DEFAULT_TOOLS[tool_id]["dir"], *DEFAULT_TOOLS[tool_id].get("aliases", [])]:
+        if alias not in names:
+            names.append(alias)
+    out: list[Path] = []
+    for base in (ROOT, ROOT.parent):
+        for name in names:
+            cand = base / name
+            if cand.is_dir() and cand not in out:
+                out.append(cand)
+    return out
+
+
+def tool_dir(tool_id: str) -> Path:
+    """Where a tool lives: an absolute path from Settings, or a folder inside this hub's folder (the
+    git-submodule layout), or one of the same/known folder names beside the hub's folder (the sibling
+    layout, e.g. ``~/AI/<repo>`` on Linux).
+
+    When several exist - e.g. an un-set-up submodule checkout inside plus an installed copy next to
+    the hub - the copy that is actually set up (has its Python environment or its container image)
+    wins; failing that, the first one that at least holds a checkout.
+    """
+    candidates = tool_dir_candidates(tool_id)
+    if not candidates:
+        return ROOT / (tool_cfg(tool_id).get("dir") or DEFAULT_TOOLS[tool_id]["dir"])
+    if len(candidates) == 1:
+        return candidates[0]
+    from .tools import TOOLS  # local import: tools.py is independent of this module
+
+    spec = TOOLS[tool_id]
     for cand in candidates:
-        if any((cand / rel).is_file() for rel in ("./.venv/Scripts/python.exe", "./.venv/bin/python",
-                                                    "YuE/.venv/Scripts/python.exe", "YuE/.venv/bin/python")):
+        if spec.installed(cand)[0]:
             return cand
-    return candidates[0] if candidates else ROOT / p
+    for cand in candidates:
+        if spec.is_checkout(cand):
+            return cand
+    return candidates[0]

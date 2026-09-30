@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from . import __version__
-from .config import APP_NAME, ROOT, ensure_dirs, load_settings
+from .config import APP_NAME, PLATFORM, ROOT, ensure_dirs, load_settings
 from .events import EventBus
 from .gpu import GpuMonitor
 from .library import Library
@@ -72,7 +72,7 @@ class Hub:
             tools[tid] = d
         return {
             "app": {"name": APP_NAME, "version": __version__, "hub_port": self.hub_port, "root": str(ROOT),
-                    "uptime_s": round(time.time() - self.started_at), "bind_host": s.bind_host},
+                    "uptime_s": round(time.time() - self.started_at), "bind_host": s.bind_host, "platform": PLATFORM},
             "system": self.gpu.snapshot,
             "gpu_history": [[round(ts), used, util] for ts, used, util in self.gpu.history],
             "tools": tools,

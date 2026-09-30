@@ -1,0 +1,7 @@
+# Hub override for Voice Studio's linux/compose.yml (merged with it by `docker compose -f a -f b`).
+# The entrypoint always passes `--preload <model>`; an empty `--preload=` appended after it wins in
+# argparse and starts the server without a model, so the GPU is taken only when the hub says so.
+services:
+  qwen-tts:
+    environment:
+      QWEN_EXTRA_ARGS: "--preload="

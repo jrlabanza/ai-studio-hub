@@ -18,7 +18,7 @@ import webbrowser
 from typing import Any
 
 from . import __version__
-from .config import APP_NAME, ROOT, ensure_dirs, load_settings
+from .config import APP_NAME, PID_FILE, ROOT, ensure_dirs, load_settings
 
 
 class Dispatcher:
@@ -138,6 +138,7 @@ def main() -> None:
     if host in ("0.0.0.0", "", "*"):
         print("  Listening on every interface - people on your network can use it (see README for the firewall rule).")
     print("  Close this window or press Ctrl+C to stop everything.\n", flush=True)
+    print(f"  Studios run {'in their Linux containers (docker compose)' if sys.platform.startswith('linux') else 'in their own Python environments'}.\n", flush=True)
 
     if not args.no_browser and settings.open_browser:
         def _open() -> None:
@@ -155,7 +156,23 @@ def main() -> None:
                 pass
         threading.Thread(target=_open, daemon=True).start()
 
-    server.run(sockets=socks)
+    if sys.platform != "win32":
+        import signal
+
+        # Closing the terminal window sends SIGHUP: treat it like Ctrl+C so the studios are stopped too.
+        signal.signal(signal.SIGHUP, lambda *_: server.handle_exit(signal.SIGTERM, None))
+    try:
+        PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        server.run(sockets=socks)
+    finally:
+        try:
+            if PID_FILE.is_file() and PID_FILE.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                PID_FILE.unlink()
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

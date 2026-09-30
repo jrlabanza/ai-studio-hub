@@ -19,6 +19,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import docker as dk
+
+IS_WINDOWS = sys.platform == "win32"
+IS_LINUX = sys.platform.startswith("linux")
 DEFAULT_TTS_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -185,17 +189,70 @@ class ToolSpec:
     python_rel = ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python"
     idle_context_mb = 400          # VRAM a running-but-unloaded process still holds (CUDA context)
     editable_sources: dict[str, str] = {}   # package -> source folder (relative) installed with pip -e
+    checkout_markers: tuple[str, ...] = ()  # files that identify a checkout of this tool's repository
+    # Linux packaging: every studio ships linux/compose.yml with one service (its ``ai.tool`` label)
+    # and a fixed port. The hub drives that container; see docker.py.
+    docker_service = ""
+    docker_port = 0
+    docker_extra_services: tuple[str, ...] = ()   # optional helpers, started with their compose profile
+    supports_unload = True          # False: the tool only holds the GPU while a job runs (Music Studio)
 
     # ------------------------------------------------------------------ installation
     def python(self, tool_dir: Path) -> Path:
         return tool_dir / self.python_rel
 
+    def is_checkout(self, tool_dir: Path) -> bool:
+        return tool_dir.is_dir() and all((tool_dir / m).exists() for m in self.checkout_markers)
+
+    def compose_file(self, tool_dir: Path) -> Path:
+        return tool_dir / "linux" / "compose.yml"
+
+    def container_name(self) -> str:
+        return f"ai-{self.docker_service}"
+
+    def compose_overrides(self, tool_dir: Path) -> tuple[Path, ...]:
+        """The hub's own additions to the studio's compose file (hub/compose/<service>.yml), if any."""
+        f = Path(__file__).resolve().parent / "compose" / f"{self.docker_service}.yml"
+        return (f,) if f.is_file() else ()
+
+    def backend(self, tool_dir: Path) -> str:
+        """``native`` (the tool's own Python environment), ``docker`` (its Linux container image) or ``""``."""
+        if self.python(tool_dir).is_file():
+            return "native"
+        if IS_LINUX and self.docker_service and self.compose_file(tool_dir).is_file():
+            return "docker"
+        return ""
+
     def installed(self, tool_dir: Path) -> tuple[bool, str]:
         if not tool_dir.is_dir():
             return False, f"Folder not found: {tool_dir}"
-        if not self.python(tool_dir).is_file():
-            return False, "Not set up yet - run this tool's Initialize script once"
-        return True, ""
+        backend = self.backend(tool_dir)
+        if backend == "native":
+            return True, ""
+        if backend == "docker":
+            if not dk.available():
+                return False, "Docker is not reachable - is it installed and are you in the docker group? (linux/initialize.sh sets it up)"
+            if not dk.image_exists(f"ai/{self.docker_service}:latest"):
+                return False, f"Container image not built yet - run linux/initialize.sh in {tool_dir.name} (or: ai init {self.docker_service})"
+            return True, ""
+        if IS_LINUX:
+            return False, "Not set up yet - run linux/initialize.sh in the tool folder once (or: ai init <tool>)"
+        return False, "Not set up yet - run this tool's Initialize script once"
+
+    def docker_services(self, tool_dir: Path, cfg: dict[str, Any]) -> tuple[list[str], tuple[str, ...]]:
+        """(compose services to bring up, compose profiles to enable)."""
+        return [self.docker_service], ()
+
+    def docker_env(self, tool_dir: Path, cfg: dict[str, Any]) -> dict[str, str]:
+        return {}
+
+    def resolved_port(self, tool_dir: Path, cfg: dict[str, Any]) -> int:
+        """The backend port. Containers listen on the port their compose file fixes; native tools take
+        whatever the hub passes on the command line."""
+        if self.backend(tool_dir) == "docker":
+            info = dk.read_run_sh(tool_dir / "linux")
+            return int(info.get("port") or self.docker_port or cfg.get("port") or 0)
+        return int(cfg.get("port") or self.docker_port or 0)
 
     def model_present(self, tool_dir: Path) -> tuple[bool, str]:
         return True, ""
@@ -215,7 +272,7 @@ class ToolSpec:
 
     def pre_launch(self, tool_dir: Path, cfg: dict[str, Any]) -> list[str]:
         """Runs right before the tool starts; returns notes for the tool's log."""
-        if self.editable_sources:
+        if self.editable_sources and self.python(tool_dir).is_file():
             return repair_editable_installs(self.python(tool_dir), tool_dir, self.editable_sources)
         return []
 
@@ -278,10 +335,13 @@ class ImageTool(ToolSpec):
     restart_exit_codes = frozenset({42})    # "GPU context lost" - the tool asks to be restarted
     port_regex = r"UI:\s+http://[\w.\-]+:(\d+)"
     claim_routes = ((POST, "/api/generate"), (POST, "/api/enhance"), (POST, "/api/model/load"))
+    checkout_markers = ("server/main.py",)
+    docker_service = "qwen-image"
+    docker_port = 7864
 
     def model_present(self, tool_dir: Path) -> tuple[bool, str]:
         ok = (tool_dir / "models" / "Qwen-Image-2.1" / "model_index.json").is_file()
-        return ok, "" if ok else "Qwen-Image-2.1 weights not downloaded (run Initialize.bat in the Image gen folder)"
+        return ok, "" if ok else "Qwen-Image-2.1 weights not downloaded (run Initialize.bat / linux/initialize.sh in the tool folder)"
 
     def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
         return [str(self.python(tool_dir)), "-m", "server", "--host", "127.0.0.1", "--port", str(port),
@@ -392,6 +452,10 @@ class TtsTool(ToolSpec):
     outputs_rel = "app/outputs"
     editable_sources = {"qwen_tts": "Qwen3-TTS"}
     idle_context_mb = 800           # its own CUDA context plus the Chatterbox helper's
+    checkout_markers = ("app/server.py",)
+    docker_service = "qwen-tts"
+    docker_port = 7861
+    docker_extra_services = ("chatterbox",)
     claim_routes = tuple((POST, p) for p in (
         "/api/tts/", "/api/models/load", "/api/tokenizer/", "/api/voices", "/api/sts", "/api/dub", "/api/transcribe",
         "/api/regenerate/", "/api/quality/", "/api/batch/csv", "/api/previews/generate", "/api/finetune/start",
@@ -402,11 +466,20 @@ class TtsTool(ToolSpec):
         return [str(self.python(tool_dir)), "app/server.py", "--host", "127.0.0.1", "--port", str(port)]
 
     def helpers(self, tool_dir: Path, cfg: dict[str, Any]) -> list[Helper]:
-        cb = tool_dir / ".venv-chatterbox" / "Scripts" / "python.exe"
+        if cfg.get("chatterbox") is False:
+            return []
+        cb = tool_dir / ".venv-chatterbox" / ("Scripts/python.exe" if IS_WINDOWS else "bin/python")
         if not cb.is_file():
             return []
         return [Helper("chatterbox", [str(cb), "chatterbox_service/server.py", "--port", str(cfg.get("helper_port", 7862))],
                        tool_dir, dict(BASE_ENV))]
+
+    def docker_services(self, tool_dir: Path, cfg: dict[str, Any]) -> tuple[list[str], tuple[str, ...]]:
+        # Chatterbox is a second container (incompatible dependency set) sharing this one's network
+        # namespace; it exists only when its image was built (run.sh --with-chatterbox / initialize.sh).
+        if cfg.get("chatterbox", True) and dk.image_exists("ai/chatterbox:latest"):
+            return [self.docker_service, "chatterbox"], ("chatterbox",)
+        return [self.docker_service], ()
 
     def health_ok(self, status_code: int, body: Any) -> bool:
         return status_code == 200 and isinstance(body, dict) and body.get("app") == "tts-generator"
@@ -499,10 +572,25 @@ class VideoTool(ToolSpec):
     port_regex = r"Lumen Video Studio -> http://[\w.\-]+:(\d+)"
     claim_routes = ((POST, "/api/generate"), (POST, "/api/engine/start"), (POST, "/api/engine/restart"))
     idle_context_mb = 0             # the backend never touches CUDA; only its (separate) engine process does
+    checkout_markers = ("backend/run.py",)
+    docker_service = "video"
+    docker_port = 8765
+
+    def models_dir(self, tool_dir: Path) -> Path:
+        """The repo's models/ - or, on Linux, the ComfyUI model store linux/.env points at."""
+        env = dk.read_env_file(tool_dir / "linux" / ".env") if IS_LINUX else {}
+        custom = env.get("VIDEOGEN_MODELS_DIR")
+        if custom:
+            p = Path(custom)
+            if not p.is_absolute():
+                p = (tool_dir / "linux" / p).resolve()
+            return p
+        return tool_dir / "models"
 
     def model_present(self, tool_dir: Path) -> tuple[bool, str]:
-        d = tool_dir / "models" / "diffusion_models"
-        ok = d.is_dir() and any(p.is_file() and not p.name.endswith(".part") for p in d.iterdir())
+        d = self.models_dir(tool_dir) / "diffusion_models"
+        ok = d.is_dir() and any(p.is_file() and not p.name.endswith(".part") and not p.name.startswith("put_")
+                                for p in d.iterdir())
         return ok, "" if ok else "No video model pack downloaded yet (open Video Studio → Models)"
 
     def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
@@ -607,13 +695,17 @@ class MusicTool(ToolSpec):
     port_regex = r"Music Gen Studio -> http://[\w.\-]+:(\d+)"
     python_rel = "YuE/.venv/Scripts/python.exe" if sys.platform == "win32" else "YuE/.venv/bin/python"
     editable_sources = {"yue2_infer": "YuE"}
+    checkout_markers = ("webui.py",)
+    docker_service = "yue2"
+    docker_port = 7863
+    supports_unload = False
     claim_routes = ((POST, "/api/generate"), (POST, "/api/plan"), (POST, "/api/transcribe"), (POST, "/api/lyrics"),
                     (POST, "/api/describe"), (POST, "/api/songs/"))
     claim_exclude_suffixes = ("/export", "/share", "/meta")
 
     def model_present(self, tool_dir: Path) -> tuple[bool, str]:
         ok = (tool_dir / "models" / "YuE2-3B").is_dir() and (tool_dir / "models" / "YuE2-Vae").is_dir()
-        return ok, "" if ok else "YuE2 weights not downloaded (run initialize.bat in the Yue2 folder)"
+        return ok, "" if ok else "YuE2 weights not downloaded (run initialize.bat / linux/initialize.sh in the tool folder)"
 
     def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
         return [str(self.python(tool_dir)), "webui.py", "--host", "127.0.0.1", "--port", str(port)]
@@ -662,5 +754,178 @@ class MusicTool(ToolSpec):
         return 8.2 if total_gb >= 14 else 5.6
 
 
-TOOLS: dict[str, ToolSpec] = {t.id: t for t in (ImageTool(), TtsTool(), VideoTool(), MusicTool())}
-TOOL_ORDER = ["image", "tts", "video", "music"]
+
+# ======================================================================= 05 Forge Studio
+class ForgeTool(ToolSpec):
+    """Stable Diffusion WebUI Forge (Neo) - the "Jrlabanza Image Generator" build.
+
+    Forge is a Gradio app; besides its REST API (``/sdapi/v1/...``, enabled with ``--api``) every
+    action in its UI travels through Gradio's queue (``/queue/join``), so that route is a claim too.
+    """
+    id = "forge"
+    name = "Forge Studio"
+    short = "Forge"
+    tagline = "Forge Neo · Stable Diffusion checkpoints, LoRAs, ControlNet, upscaling"
+    number = "05"
+    color = "#D6453D"
+    icon = "forge"
+    health_path = "/internal/ping"
+    status_path = "/sdapi/v1/progress?skip_current_image=true"
+    startup_timeout = 300.0
+    port_regex = r"Running on local URL:\s+http://[\w.\-]+:(\d+)"
+    outputs_rel = "output"
+    python_rel = "venv/Scripts/python.exe" if sys.platform == "win32" else "venv/bin/python"
+    claim_routes = tuple((POST, p) for p in (
+        "/sdapi/v1/txt2img", "/sdapi/v1/img2img", "/sdapi/v1/extra-single-image", "/sdapi/v1/extra-batch-images",
+        "/sdapi/v1/reload-checkpoint", "/queue/join", "/gradio_api/queue/join", "/run/predict", "/api/predict",
+    ))
+    checkout_markers = ("launch.py", "modules/api/api.py")
+    docker_service = "forge"
+    docker_port = 7860
+    idle_context_mb = 500
+
+    def model_present(self, tool_dir: Path) -> tuple[bool, str]:
+        d = tool_dir / "models" / "Stable-diffusion"
+        ok = d.is_dir() and any(p.suffix in (".safetensors", ".ckpt", ".gguf") for p in d.iterdir())
+        return ok, "" if ok else "No checkpoint in models/Stable-diffusion yet"
+
+    def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
+        # The flags of webui-user.bat, tuned for an 8 GB card; see the Linux entrypoint for the reasoning.
+        argv = [str(self.python(tool_dir)), "launch.py", "--port", str(port), "--api", "--reserve-vram", "2",
+                "--pin-shared-memory", "--cuda-malloc", "--cuda-stream", "--skip-python-version-check",
+                "--skip-version-check", "--skip-torch-cuda-test", "--disable-gpu-warning"]
+        if (tool_dir / "tools" / ".portable").is_file():
+            argv.append("--skip-install")
+        return argv
+
+    def health_ok(self, status_code: int, body: Any) -> bool:
+        return status_code == 200
+
+    def status_requests(self, base: str, body: dict[str, Any]) -> list[tuple[str, str]]:
+        return [("memory", f"{base}/sdapi/v1/memory")]
+
+    def parse_status(self, body: dict[str, Any], extra: dict[str, Any]) -> Summary:
+        st = body.get("state") or {}
+        job_count = int(st.get("job_count") or 0)
+        progress = float(body.get("progress") or 0.0)
+        busy = job_count > 0 or progress > 0
+        cuda = ((extra.get("memory") or {}).get("cuda") or {})
+        allocated = ((cuda.get("allocated") or {}).get("current") or 0) if isinstance(cuda, dict) else 0
+        reserved = ((cuda.get("reserved") or {}).get("current") or 0) if isinstance(cuda, dict) else 0
+        loaded = max(allocated, reserved) > 200 * 1024 * 1024
+        job = None
+        if busy:
+            steps, step = int(st.get("sampling_steps") or 0), int(st.get("sampling_step") or 0)
+            job = {"kind": "generate", "title": (st.get("job") or "Generating").strip()[:90] or "Generating",
+                   "percent": _pct(progress * 100), "eta": body.get("eta_relative") or None,
+                   "message": f"step {step}/{steps}" if steps else (body.get("textinfo") or ""), "queued": max(0, job_count - 1)}
+        label = "Checkpoint loaded" if loaded else "No checkpoint loaded"
+        return Summary(state="busy" if busy else ("ready" if loaded else "unloaded"), loaded=loaded, busy=busy,
+                       label=label, detail="", model="Forge Neo", job=job,
+                       gpu_used_mb=int(reserved / 1024 / 1024) if reserved else None)
+
+    def unload_steps(self, base: str, cfg: dict[str, Any], tool_dir: Path) -> list[Step]:
+        return [Step("POST", f"{base}/sdapi/v1/unload-checkpoint", timeout=90, label="unload Forge checkpoint")]
+
+    def vram_need_gb(self, total_gb: float) -> float:
+        if total_gb >= 20:
+            return 10.0
+        if total_gb >= 12:
+            return 8.0
+        return min(6.0, max(total_gb - 1.5, 3.0))   # --reserve-vram 2 keeps the rest free
+
+
+# ======================================================================= 06 Node Studio
+class ComfyTool(ToolSpec):
+    """ComfyUI - node-based image and video generation (the same engine Video Studio embeds)."""
+    id = "comfy"
+    name = "Node Studio"
+    short = "Nodes"
+    tagline = "ComfyUI · node graphs for Wan, LTX, SDXL and everything with a custom node"
+    number = "06"
+    color = "#7C5CFF"
+    icon = "nodes"
+    health_path = "/system_stats"
+    status_path = "/system_stats"
+    startup_timeout = 240.0
+    port_regex = r"To see the GUI go to:\s+http://[\w.\-]+:(\d+)"
+    outputs_rel = "output"
+    claim_routes = ((POST, "/prompt"), (POST, "/api/prompt"))
+    checkout_markers = ("main.py", "nodes.py")
+    docker_service = "comfyui"
+    docker_port = 8188
+    idle_context_mb = 400
+
+    # Windows: the portable build (python_embeded next to the ComfyUI folder) or a plain venv.
+    def python(self, tool_dir: Path) -> Path:
+        for cand in (tool_dir / ".venv" / "Scripts" / "python.exe", tool_dir / "venv" / "Scripts" / "python.exe",
+                     tool_dir / ".venv" / "bin" / "python", tool_dir / "venv" / "bin" / "python",
+                     tool_dir / "python_embeded" / "python.exe", tool_dir.parent / "python_embeded" / "python.exe"):
+            if cand.is_file():
+                return cand
+        return tool_dir / self.python_rel
+
+    def is_checkout(self, tool_dir: Path) -> bool:
+        return super().is_checkout(tool_dir) or (tool_dir / "ComfyUI" / "main.py").is_file()
+
+    def main_py(self, tool_dir: Path) -> Path:
+        return tool_dir / "main.py" if (tool_dir / "main.py").is_file() else tool_dir / "ComfyUI" / "main.py"
+
+    def model_present(self, tool_dir: Path) -> tuple[bool, str]:
+        d = tool_dir / "models" / "diffusion_models"
+        c = tool_dir / "models" / "checkpoints"
+        ok = any(x.is_dir() and any(p.is_file() and not p.name.startswith("put_") and not p.name.endswith(".part")
+                                    for p in x.iterdir()) for x in (d, c))
+        return ok, "" if ok else "No models in models/checkpoints or models/diffusion_models yet"
+
+    def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
+        py = self.python(tool_dir)
+        argv = [str(py), "-s", str(self.main_py(tool_dir)), "--port", str(port), "--fast", "fp16_accumulation",
+                "--disable-pinned-memory"]
+        if py.parent.name == "python_embeded":
+            argv.append("--windows-standalone-build")
+        return argv
+
+    def health_ok(self, status_code: int, body: Any) -> bool:
+        return status_code == 200 and isinstance(body, dict) and "devices" in body
+
+    def status_requests(self, base: str, body: dict[str, Any]) -> list[tuple[str, str]]:
+        return [("queue", f"{base}/queue")]
+
+    def parse_status(self, body: dict[str, Any], extra: dict[str, Any]) -> Summary:
+        devices = body.get("devices") or []
+        dev = devices[0] if devices and isinstance(devices[0], dict) else {}
+        torch_total = int(dev.get("torch_vram_total") or 0)
+        torch_free = int(dev.get("torch_vram_free") or 0)
+        held = max(0, torch_total - torch_free)
+        loaded = torch_total > 300 * 1024 * 1024
+        q = extra.get("queue") or {}
+        running = q.get("queue_running") or []
+        pending = q.get("queue_pending") or []
+        busy = bool(running) or bool(pending)
+        job = None
+        if busy:
+            job = {"kind": "workflow", "title": "Running a workflow" if running else "Queued", "percent": None, "eta": None,
+                   "message": f"{len(pending)} queued" if pending else "", "queued": len(pending)}
+        label = "Models resident" if loaded else "No models loaded"
+        detail = f"torch holds {torch_total / 2**30:.1f} GB" if loaded else ""
+        return Summary(state="busy" if busy else ("ready" if loaded else "unloaded"), loaded=loaded, busy=busy,
+                       label=label, detail=detail, model="ComfyUI", job=job,
+                       gpu_used_mb=int(held / 1024 / 1024) if held else None)
+
+    def unload_steps(self, base: str, cfg: dict[str, Any], tool_dir: Path) -> list[Step]:
+        return [Step("POST", f"{base}/free", json={"unload_models": True, "free_memory": True}, timeout=60,
+                     label="free ComfyUI models")]
+
+    def vram_need_gb(self, total_gb: float) -> float:
+        if total_gb >= 24:
+            return 20.0
+        if total_gb >= 16:
+            return 13.0
+        if total_gb >= 12:
+            return 10.0
+        return max(total_gb - 1.6, 5.0)
+
+
+TOOLS: dict[str, ToolSpec] = {t.id: t for t in (ImageTool(), TtsTool(), VideoTool(), MusicTool(), ForgeTool(), ComfyTool())}
+TOOL_ORDER = ["image", "tts", "video", "music", "forge", "comfy"]

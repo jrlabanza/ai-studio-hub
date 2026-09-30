@@ -1,4 +1,4 @@
-"""The auto-loader: one GPU, four studios, no manual model juggling.
+"""The auto-loader: one GPU, several studios, no manual model juggling.
 
 Whenever a request that needs the GPU reaches a tool (a *claim*), the orchestrator first makes
 room for it: it waits for jobs running elsewhere, unloads the other tools' models, and - only if
@@ -192,6 +192,20 @@ class Orchestrator:
         self._record(tool.id, f"Released the GPU from {tool.spec.name}" + (f" ({why})" if why else ""))
         await self.refresh(tool)
         return ok_all
+
+    async def on_started(self, tool: "ManagedProcess") -> None:
+        """A studio that loads a model on its own at boot (Forge loads its last checkpoint) must not keep it
+        while another studio holds the GPU: unload it straight away. Called right after a tool becomes ready."""
+        await asyncio.sleep(2.0)
+        if not tool.running or self._lock.locked():
+            return
+        summ = await self.refresh(tool)
+        holder = self.owner
+        if not holder or holder == tool.id or holder not in self.tools or not summ.loaded or summ.busy:
+            return
+        if not tool.spec.supports_unload or self.tools[holder].state != "running":
+            return
+        await self.unload_models(tool, f"{self.tools[holder].spec.name} holds the GPU")
 
     async def prepare(self, tool_id: str, reason: str = "") -> ClaimResult:
         tool = self.tools[tool_id]
@@ -441,7 +455,7 @@ class Orchestrator:
                 continue
             last = self.last_activity.get(t.id) or t.started_at or now
             idle_min = (now - last) / 60
-            if unload_min > 0 and summ.loaded and idle_min >= unload_min and t.id != "music":
+            if unload_min > 0 and summ.loaded and idle_min >= unload_min and t.spec.supports_unload:
                 await self.unload_models(t, f"idle for {int(idle_min)} min")
                 self.last_activity[t.id] = now - unload_min * 60  # keep the stop timer running
                 continue

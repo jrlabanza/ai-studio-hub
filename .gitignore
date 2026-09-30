@@ -4,5 +4,5 @@ data/
 __pycache__/
 *.pyc
 
-# The four studios are git submodules (Image gen, qwen tts, video-gen, Yue2); their own .gitignore
+# The studios are git submodules (Image gen, qwen tts, video-gen, Yue2, forge, comfyui); their own .gitignore
 # files keep environments, models and outputs out of git.
