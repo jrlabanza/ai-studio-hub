@@ -55,16 +55,67 @@ VIDEO_EXT = {".mp4", ".webm", ".mov", ".gif"}
 AUDIO_EXT = {".flac", ".wav", ".mp3"}
 
 
-def _png_text(path: Path) -> dict[str, str]:
-    """The text chunks of a PNG (Forge writes ``parameters``, ComfyUI ``prompt`` / ``workflow``)."""
+def _png_header(path: Path) -> tuple[int | None, int | None, dict[str, str]]:
+    """Width, height and the text chunks (tEXt / iTXt / zTXt) of a PNG, read chunk by chunk and stopping
+    at the first IDAT - Forge and ComfyUI write their metadata before the pixel data, and decoding a
+    1024x1024 image just to read a prompt is what made the first library scan take half a minute."""
+    import struct
+    import zlib
+
+    w = h = None
+    text: dict[str, str] = {}
+    try:
+        with open(path, "rb") as fh:
+            if fh.read(8) != b"\x89PNG\r\n\x1a\n":
+                return None, None, {}
+            while True:
+                head = fh.read(8)
+                if len(head) < 8:
+                    break
+                length, ctype = struct.unpack(">I4s", head)
+                if ctype == b"IHDR":
+                    data = fh.read(length)
+                    w, h = struct.unpack(">II", data[:8])
+                elif ctype in (b"tEXt", b"iTXt", b"zTXt") and length < 4 * 1024 * 1024:
+                    data = fh.read(length)
+                    try:
+                        if ctype == b"tEXt":
+                            k, v = data.split(b"\x00", 1)
+                            text[k.decode("latin-1")] = v.decode("latin-1", "replace")
+                        elif ctype == b"zTXt":
+                            k, rest = data.split(b"\x00", 1)
+                            text[k.decode("latin-1")] = zlib.decompress(rest[1:]).decode("latin-1", "replace")
+                        else:
+                            k, rest = data.split(b"\x00", 1)
+                            comp_flag, _method = rest[0], rest[1]
+                            rest = rest[2:]
+                            _lang, rest = rest.split(b"\x00", 1)
+                            _tkey, payload = rest.split(b"\x00", 1)
+                            text[k.decode("latin-1")] = (zlib.decompress(payload) if comp_flag else payload).decode("utf-8", "replace")
+                    except Exception:
+                        pass
+                elif ctype in (b"IDAT", b"IEND"):
+                    break
+                else:
+                    fh.seek(length, 1)
+                fh.seek(4, 1)   # CRC
+    except OSError:
+        return None, None, {}
+    return w, h, text
+
+
+def _image_info(path: Path, want_text: bool) -> tuple[int | None, int | None, dict[str, str]]:
+    """(width, height, PNG text chunks) from the file header only - no pixel decoding."""
+    if path.suffix.lower() == ".png":
+        return _png_header(path)
     try:
         from PIL import Image
 
         with Image.open(path) as img:
-            info = getattr(img, "text", None) or {}
-            return {k: str(v) for k, v in info.items() if isinstance(v, str)}
+            w, h = img.size
+            return w, h, {}
     except Exception:
-        return {}
+        return None, None, {}
 
 
 def _newest_files(root: Path, exts: set[str], limit: int = 600, max_depth: int = 4) -> list[Path]:
@@ -324,22 +375,13 @@ class Library:
         for file in _newest_files(outputs, IMAGE_EXT | VIDEO_EXT):
             rel = file.relative_to(outputs).as_posix()
             kind = "video" if file.suffix.lower() in VIDEO_EXT else "image"
-            meta = _png_text(file) if file.suffix.lower() == ".png" else {}
+            w, h, meta = _image_info(file, file.suffix.lower() == ".png") if kind == "image" else (None, None, {})
             params = meta.get("parameters", "")
             prompt = params.split("\nNegative prompt:")[0].split("\nSteps:")[0].strip() if params else ""
             model = ""
             for part in params.split("\n")[-1].split(", ") if params else []:
                 if part.startswith("Model: "):
                     model = part[7:]
-            w = h = None
-            if kind == "image":
-                try:
-                    from PIL import Image
-
-                    with Image.open(file) as img:
-                        w, h = img.size
-                except Exception:
-                    pass
             folder = file.parent.name
             sub = " · ".join(x for x in (folder.replace("-", " "), f"{w}×{h}" if w and h else "") if x)
             items.append({
@@ -357,7 +399,7 @@ class Library:
             rel = file.relative_to(outputs).as_posix()
             ext = file.suffix.lower()
             kind = "video" if ext in VIDEO_EXT else ("audio" if ext in AUDIO_EXT else "image")
-            meta = _png_text(file) if ext == ".png" else {}
+            w, h, meta = _image_info(file, ext == ".png") if kind == "image" else (None, None, {})
             prompt = ""
             if meta.get("prompt"):
                 try:
@@ -368,15 +410,6 @@ class Library:
                     prompt = max(texts, key=len) if texts else ""
                 except Exception:
                     prompt = ""
-            w = h = None
-            if kind == "image":
-                try:
-                    from PIL import Image
-
-                    with Image.open(file) as img:
-                        w, h = img.size
-                except Exception:
-                    pass
             sub = " · ".join(x for x in (file.parent.name if file.parent != outputs else "", f"{w}×{h}" if w and h else "") if x)
             items.append({
                 "id": f"comfy:{rel}", "tool": "comfy", "kind": kind, "title": prompt[:300] or file.stem, "subtitle": sub,

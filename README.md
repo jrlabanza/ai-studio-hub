@@ -22,6 +22,23 @@ out of the shell otherwise.
 Runs on **Windows** (each tool in its own Python environment) and on **Linux** (each tool in its own Docker
 container, the `linux/` packaging every studio ships).
 
+## What it looks like
+
+![Home - the card, the studios and what the hub did](docs/screenshots/home.png)
+
+*Home: live VRAM, the studios with their model state, and the activity feed. Every studio opens inside the shell with
+the hub's theme applied - here Image Studio, with the GPU handed to it:*
+
+![Image Studio inside the shell](docs/screenshots/studio.png)
+
+*Library: everything the studios have made, in one grid (filtered to videos here):*
+
+![Library](docs/screenshots/library.png)
+
+*Settings: the GPU policy and timers, and one row per studio:*
+
+![Settings](docs/screenshots/settings.png)
+
 ## Quick start (Windows)
 
 1. Clone the hub **with the studios** (they are git submodules, pinned to tested versions):

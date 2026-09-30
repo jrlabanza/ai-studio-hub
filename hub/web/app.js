@@ -182,7 +182,7 @@
     renderNav();
     if (first && S.view === "tool" && S.tool && !S.frames[S.tool]) mountTool(S.tool);
     if (S.view === "home") renderHome();
-    if (S.view === "tool") { const t = toolOf(S.tool); if (t) $("#topSub").textContent = t.tagline; }
+    if (S.view === "tool") { const t = toolOf(S.tool); if (t) { $("#topTitle").textContent = t.name; $("#topSub").textContent = t.tagline; const num = $("#topNum"); num.textContent = t.number; num.style.setProperty("--tool", t.color); } }
     syncFrames();
     if (S.view === "settings" && !S.settingsDirty) renderSettings(false);
     if (st.theme && st.theme !== S.theme && !S.themeTouched) applyTheme(st.theme, false);
