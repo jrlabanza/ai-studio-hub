@@ -274,8 +274,11 @@ def create_app(hub: Hub) -> FastAPI:
     @app.get("/api/doctor")
     async def api_doctor() -> dict[str, Any]:
         g = hub.gpu.latest
-        checks = [{"name": "NVIDIA GPU", "ok": g.available,
-                   "detail": f"{g.name} · {g.total_mb / 1024:.0f} GB · driver {g.driver}" if g.available else "nvidia-smi not found"}]
+        vendor = {"nvidia": "NVIDIA", "amd": "AMD"}.get(g.vendor, "")
+        checks = [{"name": f"{vendor or 'Graphics'} card", "ok": g.available,
+                   "detail": (f"{g.name} · {g.total_mb / 1024:.0f} GB · {g.backend.upper() if g.backend else ''}"
+                              f"{' · driver ' + g.driver if g.driver else ''} · read via {g.source}") if g.available
+                   else "no NVIDIA or AMD card found (nvidia-smi / rocm-smi / Windows GPU counters all empty)"}]
         if PLATFORM == "linux":
             checks.append({"name": "Docker", "ok": dk.available(),
                            "detail": " ".join(dk.docker() or []) or "not reachable - install Docker + NVIDIA Container Toolkit (any studio's linux/initialize.sh does it)"})

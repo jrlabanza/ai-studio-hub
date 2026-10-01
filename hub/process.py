@@ -199,6 +199,7 @@ class ManagedProcess:
             "last_exit_code": self.last_exit_code, "helpers": [h.name for h, _ in self.helper_procs],
             "supports_unload": self.spec.supports_unload,
             "held": self.held, "held_by": self.held_by() if self.held else "",
+            "gpu": {k: self.spec.gpu_profile(tdir).get(k, "") for k in ("vendor", "backend", "gfx", "torch")},
         }
 
     def tail(self, n: int = 200) -> list[str]:

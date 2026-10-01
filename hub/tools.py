@@ -204,6 +204,16 @@ class ToolSpec:
     def python(self, tool_dir: Path) -> Path:
         return tool_dir / self.python_rel
 
+    @staticmethod
+    def gpu_profile(tool_dir: Path) -> dict[str, Any]:
+        """What the studio's initialiser set it up for (docs/gpu.md): ``{"vendor","backend","gfx",...}``.
+        Empty when the studio was set up before the vendor-aware initialisers (treated as NVIDIA)."""
+        try:
+            d = json.loads((tool_dir / ".gpu.json").read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+
     def is_checkout(self, tool_dir: Path) -> bool:
         return tool_dir.is_dir() and all((tool_dir / m).exists() for m in self.checkout_markers)
 
@@ -818,8 +828,11 @@ class ForgeTool(ToolSpec):
     def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
         # The flags of webui-user.bat, tuned for an 8 GB card; see the Linux entrypoint for the reasoning.
         argv = [str(self.python(tool_dir)), "launch.py", "--port", str(port), "--api", "--reserve-vram", "2",
-                "--pin-shared-memory", "--cuda-malloc", "--cuda-stream", "--skip-python-version-check",
-                "--skip-version-check", "--skip-torch-cuda-test", "--disable-gpu-warning"]
+                "--skip-python-version-check", "--skip-version-check", "--skip-torch-cuda-test", "--disable-gpu-warning"]
+        if self.gpu_profile(tool_dir).get("backend", "cuda") == "cuda":
+            argv += ["--pin-shared-memory", "--cuda-malloc", "--cuda-stream"]      # CUDA allocator / stream tricks
+        else:
+            argv += ["--attention-pytorch"]                                        # ROCm: no SageAttention / xformers
         if (tool_dir / "tools" / ".portable").is_file():
             argv.append("--skip-install")
         return argv

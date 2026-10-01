@@ -105,6 +105,20 @@ How the container path differs from the tools' own `run.sh`:
   queue, which the hub treats as a GPU claim, so the other studios are unloaded first; and should a studio ever come
   up holding a model while another one owns the GPU, the hub unloads it again straight away.
 
+## GPU support: NVIDIA and AMD
+
+| | NVIDIA | AMD |
+|---|---|---|
+| Windows | tested (CUDA 12.6 / 13) | implemented through AMD's native PyTorch-on-ROCm wheels (ROCm 7.14, Radeon RX 7000 / RX 9000, RX 6800 and up, Ryzen AI APUs) - **awaiting verification on AMD hardware** |
+| Linux | tested (Docker, CUDA) | the containers are CUDA builds for now; see [docs/gpu.md](docs/gpu.md) |
+
+Every studio's initialiser detects the card once, installs the matching PyTorch build and writes what it
+chose to `.gpu.json`; launchers and the apps read that file to switch off the features that only exist for
+the other vendor (NF4 quantisation, SageAttention, CUDA graphs, pinned-memory tricks). The hub reads the card
+through `nvidia-smi`, `rocm-smi`/`amd-smi` or the Windows GPU performance counters, whichever exists, and its
+check-up page shows which vendor each studio was set up for. [docs/gpu.md](docs/gpu.md) is the contract and
+the per-studio detail.
+
 ## How the auto-loader works
 
 Every request that needs the GPU (Generate, Enhance, Load model, Start engine, Sing, Transcribe, a Forge txt2img …) passes through the hub first. Before forwarding it the hub:
@@ -112,7 +126,7 @@ Every request that needs the GPU (Generate, Enhance, Load model, Start engine, S
 1. **waits** if another studio is still rendering — no job is ever interrupted, your request is queued and starts by itself;
 2. **unloads** the other studios' models (Qwen-Image, Qwen3-TTS + Whisper + Chatterbox, the ComfyUI engine, Forge's
    checkpoint);
-3. measures the free VRAM with `nvidia-smi`; if the card is still too full it **stops** the other studios' processes (an idle
+3. measures the free VRAM (`nvidia-smi`, `rocm-smi` or the Windows GPU counters); if the card is still too full it **stops** the other studios' processes (an idle
    process still pins a few hundred MB of CUDA context — that matters on 8 GB) and asks a local **Ollama** to drop its models;
 4. hands the GPU over and lets the studio load what it needs (queueing a model load ahead of the request where the tool
    does not do that itself).
@@ -190,13 +204,13 @@ hub\
   docker.py         docker / docker compose helpers for the Linux packaging
   tools.py          everything the hub knows about each studio
   library.py        the unified library (reads the tools' output folders and indexes)
-  gpu.py            nvidia-smi / psutil telemetry
+  gpu.py            GPU telemetry: nvidia-smi, rocm-smi / amd-smi, Windows GPU counters; psutil
   compose\          the hub's compose overrides (start-idle switches) merged with the studios' compose files on Linux
   web\              the shell (no build step) and the theme files injected into the studios
 data\               settings.json, logs\<tool>.log, thumbs\, hub.pid   (created on first start)
 ```
 
-Requires Python 3.10+ and an NVIDIA GPU with a driver that provides `nvidia-smi`. Windows 10/11 needs the `py`
+Requires Python 3.10+ and an NVIDIA GPU (driver with `nvidia-smi`) or an AMD Radeon GPU (see GPU support above). Windows 10/11 needs the `py`
 launcher; Linux needs Docker with the NVIDIA Container Toolkit (any studio's `linux/initialize.sh` installs them) and
 `python3-venv`.
 

@@ -206,7 +206,7 @@
       $("#railGpuText").textContent = `${g.name.replace("NVIDIA ", "")} · ${gb(g.free_mb)} free`;
     } else {
       $("#meterVramText").textContent = "no GPU";
-      $("#railGpuText").textContent = "No NVIDIA GPU";
+      $("#railGpuText").textContent = "No GPU found";
     }
     const rpct = sys.ram_total_mb ? (sys.ram_used_mb / sys.ram_total_mb) * 100 : 0;
     $("#meterRamFill").style.width = `${rpct}%`;
@@ -250,7 +250,7 @@
     const st = S.state; if (!st) return;
     const g = st.system.gpu, orch = st.orchestrator;
     $("#heroTitle").textContent = greeting();
-    $("#gpuName").textContent = g.available ? g.name : "No NVIDIA GPU detected";
+    $("#gpuName").textContent = g.available ? g.name : "No NVIDIA or AMD GPU detected";
     const pill = $("#gpuOwnerPill");
     pill.className = `pill ${orch.owner ? "owner" : ""}`;
     pill.textContent = orch.owner ? `Held by ${nameOf(orch.owner)}` : "Free";

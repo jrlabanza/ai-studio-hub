@@ -1,11 +1,24 @@
-"""GPU / RAM telemetry without importing torch: nvidia-smi (about 30 ms per call) and psutil."""
+"""GPU / RAM telemetry without importing torch - for NVIDIA and AMD cards alike.
+
+Readers, in order of preference:
+
+* ``nvidia-smi`` (NVIDIA, Windows + Linux, ~30 ms per call);
+* ``rocm-smi`` / ``amd-smi`` (AMD on Linux);
+* Windows performance counters (any vendor: ``GPU Adapter Memory`` / ``GPU Process Memory``), the path
+  AMD cards take on Windows, where ROCm ships no SMI tool.
+
+See docs/gpu.md.
+"""
 from __future__ import annotations
 
 import asyncio
 import collections
+import json
 import os
+import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -15,6 +28,15 @@ import psutil
 from .config import ROOT
 
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+IS_WINDOWS = sys.platform == "win32"
+
+
+def _which(*names: str) -> str | None:
+    for n in names:
+        exe = shutil.which(n)
+        if exe:
+            return exe
+    return None
 
 
 def _nvidia_smi_path() -> str | None:
@@ -28,15 +50,9 @@ def _nvidia_smi_path() -> str | None:
     return None
 
 
-_SMI = _nvidia_smi_path()
-
-
-def _smi(args: list[str], timeout: float = 4.0) -> str | None:
-    if not _SMI:
-        return None
+def _run(argv: list[str], timeout: float = 4.0) -> str | None:
     try:
-        out = subprocess.run([_SMI, *args], capture_output=True, text=True, timeout=timeout,
-                             creationflags=_CREATE_NO_WINDOW)
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, creationflags=_CREATE_NO_WINDOW)
         if out.returncode != 0:
             return None
         return out.stdout.strip()
@@ -44,12 +60,12 @@ def _smi(args: list[str], timeout: float = 4.0) -> str | None:
         return None
 
 
-def _num(v: str, default: float = 0.0) -> float:
-    v = v.strip()
-    if not v or v.startswith("[N/A]") or v == "N/A":
+def _num(v: Any, default: float = 0.0) -> float:
+    s = str(v).strip()
+    if not s or s.startswith("[N/A]") or s == "N/A":
         return default
     try:
-        return float(v)
+        return float(re.sub(r"[^\d.\-]", "", s) or default)
     except ValueError:
         return default
 
@@ -66,14 +82,27 @@ class GpuInfo:
     power_w: float = 0.0
     driver: str = ""
     compute_cap: str = ""
+    vendor: str = ""                 # nvidia | amd | ""
+    backend: str = ""                # cuda | rocm | ""
+    source: str = ""                 # nvidia-smi | rocm-smi | amd-smi | windows-counters
     processes: list[dict[str, Any]] = field(default_factory=list)
 
 
-def query_gpu(with_processes: bool = False) -> GpuInfo:
+# ---------------------------------------------------------------------------------- NVIDIA
+_SMI = _nvidia_smi_path()
+
+
+def _smi(args: list[str], timeout: float = 4.0) -> str | None:
+    if not _SMI:
+        return None
+    return _run([_SMI, *args], timeout)
+
+
+def _query_nvidia(with_processes: bool) -> GpuInfo | None:
     line = _smi(["--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,"
                  "driver_version,compute_cap", "--format=csv,noheader,nounits"])
     if not line:
-        return GpuInfo(available=False)
+        return None
     parts = [p.strip() for p in line.splitlines()[0].split(",")]
     try:
         info = GpuInfo(available=True, name=parts[0], total_mb=int(_num(parts[1])), used_mb=int(_num(parts[2])),
@@ -82,6 +111,7 @@ def query_gpu(with_processes: bool = False) -> GpuInfo:
                        compute_cap=parts[8] if len(parts) > 8 else "")
     except Exception:
         info = GpuInfo(available=True, name=parts[0] if parts else "GPU")
+    info.vendor, info.backend, info.source = "nvidia", "cuda", "nvidia-smi"
     if with_processes:
         procs = _smi(["--query-compute-apps=pid,used_memory,process_name", "--format=csv,noheader,nounits"], timeout=3)
         if procs:
@@ -92,6 +122,178 @@ def query_gpu(with_processes: bool = False) -> GpuInfo:
                     info.processes.append({"pid": int(cols[0]), "used_mb": int(used) if used >= 0 else None,
                                            "name": cols[2] if len(cols) > 2 else ""})
     return info
+
+
+# ---------------------------------------------------------------------------------- AMD on Linux
+_ROCM_SMI = None if IS_WINDOWS else _which("rocm-smi", "/opt/rocm/bin/rocm-smi")
+_AMD_SMI = None if IS_WINDOWS else _which("amd-smi", "/opt/rocm/bin/amd-smi")
+
+
+def _first_card(d: Any) -> dict[str, Any]:
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if isinstance(v, dict) and (k.startswith("card") or k.startswith("gpu")):
+                return v
+        return d
+    if isinstance(d, list) and d and isinstance(d[0], dict):
+        return d[0]
+    return {}
+
+
+def parse_rocm_smi(text: str) -> GpuInfo | None:
+    """``rocm-smi --showmeminfo vram --showuse --showtemp --showpower --showproductname --showdriverversion --json``."""
+    try:
+        d = json.loads(text)
+    except Exception:
+        return None
+    card = _first_card(d)
+    if not card:
+        return None
+
+    def pick(*keys: str) -> Any:
+        for k in keys:
+            for kk, v in card.items():
+                if kk.lower() == k.lower():
+                    return v
+        for k in keys:
+            for kk, v in card.items():
+                if k.lower() in kk.lower():
+                    return v
+        return None
+
+    total_b = _num(pick("VRAM Total Memory (B)"))
+    used_b = _num(pick("VRAM Total Used Memory (B)"))
+    name = str(pick("Card Series", "Card series", "Card model", "GPU name", "Device Name") or "AMD GPU")
+    info = GpuInfo(available=True, name=name, total_mb=int(total_b / 1024 / 1024), used_mb=int(used_b / 1024 / 1024),
+                   free_mb=int((total_b - used_b) / 1024 / 1024), util=int(_num(pick("GPU use (%)"))),
+                   temp=int(_num(pick("Temperature (Sensor edge) (C)", "Temperature (Sensor junction) (C)"))),
+                   power_w=round(_num(pick("Average Graphics Package Power (W)", "Current Socket Graphics Package Power (W)")), 1),
+                   driver=str(d.get("system", {}).get("Driver version", "") if isinstance(d.get("system"), dict) else ""),
+                   vendor="amd", backend="rocm", source="rocm-smi")
+    return info
+
+
+def parse_rocm_smi_pids(text: str) -> list[dict[str, Any]]:
+    """``rocm-smi --showpids --json`` -> [{pid, used_mb, name}]."""
+    out: list[dict[str, Any]] = []
+    try:
+        d = json.loads(text)
+    except Exception:
+        return out
+    sysd = d.get("system") if isinstance(d, dict) else None
+    for k, v in (sysd or {}).items():
+        if not isinstance(v, (dict, str)) or not str(k).startswith("PID"):
+            continue
+        pid = int(_num(str(k).replace("PID", "")))
+        name, vram = "", None
+        if isinstance(v, dict):
+            name = str(v.get("Process name", v.get("Process Name", "")))
+            vr = v.get("VRAM Used", v.get("VRAM used"))
+            vram = int(_num(vr) / 1024 / 1024) if vr not in (None, "") else None
+        elif isinstance(v, str):
+            parts = [p.strip() for p in v.split(",")]
+            if parts:
+                name = parts[0]
+            if len(parts) > 2:
+                vram = int(_num(parts[2]) / 1024 / 1024)
+        out.append({"pid": pid, "used_mb": vram, "name": name})
+    return out
+
+
+def _query_amd_linux(with_processes: bool) -> GpuInfo | None:
+    if _ROCM_SMI:
+        text = _run([_ROCM_SMI, "--showmeminfo", "vram", "--showuse", "--showtemp", "--showpower", "--showproductname",
+                     "--showdriverversion", "--json"], timeout=5)
+        info = parse_rocm_smi(text) if text else None
+        if info:
+            if with_processes:
+                pids = _run([_ROCM_SMI, "--showpids", "--json"], timeout=5)
+                if pids:
+                    info.processes = parse_rocm_smi_pids(pids)
+            return info
+    if _AMD_SMI:
+        text = _run([_AMD_SMI, "metric", "--mem-usage", "--usage", "--temperature", "--power", "--json"], timeout=5)
+        try:
+            d = json.loads(text or "")
+            card = _first_card(d)
+            mem = card.get("mem_usage", {})
+            total = _num((mem.get("total_vram") or {}).get("value", 0))
+            used = _num((mem.get("used_vram") or {}).get("value", 0))
+            unit = str((mem.get("total_vram") or {}).get("unit", "MB")).upper()
+            scale = 1024 if unit.startswith("G") else 1
+            info = GpuInfo(available=True, name=str(card.get("gpu", "AMD GPU")), total_mb=int(total * scale),
+                           used_mb=int(used * scale), free_mb=int((total - used) * scale),
+                           util=int(_num((card.get("usage", {}).get("gfx_activity") or {}).get("value", 0))),
+                           temp=int(_num((card.get("temperature", {}).get("edge") or {}).get("value", 0))),
+                           power_w=round(_num((card.get("power", {}).get("socket_power") or {}).get("value", 0)), 1),
+                           vendor="amd", backend="rocm", source="amd-smi")
+            return info
+        except Exception:
+            return None
+    return None
+
+
+# ---------------------------------------------------------------------------------- Windows counters
+_PS = _which("pwsh", "powershell") if IS_WINDOWS else None
+_WIN_PS = r"""
+$ErrorActionPreference='SilentlyContinue'
+$a = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Microsoft|Virtual|Remote|Basic' } | Sort-Object AdapterRAM -Descending | Select-Object -First 1
+$total = 0
+try { $keys = Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}' | Where-Object { $_.PSChildName -match '^\d{4}$' }
+  foreach ($k in $keys) { $p = Get-ItemProperty $k.PSPath; if ($p.'HardwareInformation.qwMemorySize') { $m = [int64]$p.'HardwareInformation.qwMemorySize'; if ($m -gt $total) { $total = $m } } } } catch {}
+if (-not $total -and $a.AdapterRAM) { $total = [int64]$a.AdapterRAM }
+$used = 0; $util = 0
+try { $used = ((Get-Counter '\GPU Adapter Memory(*)\Dedicated Usage').CounterSamples | Measure-Object CookedValue -Sum).Sum } catch {}
+try { $util = ((Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage').CounterSamples | Measure-Object CookedValue -Sum).Sum } catch {}
+$procs = @()
+if ($env:HUB_GPU_PROCS -eq '1') { try { $procs = (Get-Counter '\GPU Process Memory(*)\Dedicated Usage').CounterSamples | Where-Object { $_.CookedValue -gt 0 } | ForEach-Object { @{ pid = [int](($_.InstanceName -split '_')[1]); bytes = [int64]$_.CookedValue } } } catch {} }
+@{ name = [string]$a.Name; driver = [string]$a.DriverVersion; total = [int64]$total; used = [int64]$used; util = [int](([double]$util) -as [int]); procs = $procs } | ConvertTo-Json -Compress -Depth 3
+"""
+
+
+def _query_windows_counters(with_processes: bool) -> GpuInfo | None:
+    if not _PS:
+        return None
+    env = {**os.environ, "HUB_GPU_PROCS": "1" if with_processes else "0"}
+    try:
+        out = subprocess.run([_PS, "-NoProfile", "-NonInteractive", "-Command", _WIN_PS], capture_output=True, text=True,
+                             timeout=12, creationflags=_CREATE_NO_WINDOW, env=env)
+        d = json.loads(out.stdout.strip() or "{}")
+    except Exception:
+        return None
+    if not d.get("name"):
+        return None
+    name = str(d["name"])
+    total = int(_num(d.get("total")) / 1024 / 1024)
+    used = int(_num(d.get("used")) / 1024 / 1024)
+    vendor = "amd" if re.search(r"AMD|Radeon", name, re.I) else ("nvidia" if "NVIDIA" in name else "")
+    info = GpuInfo(available=True, name=name, total_mb=total, used_mb=used, free_mb=max(0, total - used),
+                   util=int(min(100, _num(d.get("util")))), driver=str(d.get("driver", "")), vendor=vendor,
+                   backend="rocm" if vendor == "amd" else ("cuda" if vendor == "nvidia" else ""), source="windows-counters")
+    for p in d.get("procs") or []:
+        try:
+            pid = int(p["pid"])
+            info.processes.append({"pid": pid, "used_mb": int(_num(p["bytes"]) / 1024 / 1024),
+                                   "name": psutil.Process(pid).name() if psutil.pid_exists(pid) else ""})
+        except Exception:
+            continue
+    return info
+
+
+# ---------------------------------------------------------------------------------- public
+def query_gpu(with_processes: bool = False) -> GpuInfo:
+    info = _query_nvidia(with_processes)
+    if info:
+        return info
+    if not IS_WINDOWS:
+        info = _query_amd_linux(with_processes)
+        if info:
+            return info
+    else:
+        info = _query_windows_counters(with_processes)
+        if info:
+            return info
+    return GpuInfo(available=False)
 
 
 def vram_tier(total_mb: int) -> str:
@@ -130,7 +332,7 @@ def system_snapshot(gpu: GpuInfo | None = None) -> dict[str, Any]:
 
 
 class GpuMonitor:
-    """Samples nvidia-smi in the background so requests never pay for a subprocess call."""
+    """Samples the card in the background so requests never pay for a subprocess call."""
 
     def __init__(self, interval: float = 2.0) -> None:
         self.interval = interval
@@ -141,6 +343,9 @@ class GpuMonitor:
 
     async def start(self) -> None:
         await self.refresh()
+        # The Windows counter path costs ~1 s per call: sample it less often.
+        if self.latest.source == "windows-counters":
+            self.interval = max(self.interval, 4.0)
         self._task = asyncio.create_task(self._loop(), name="gpu-monitor")
 
     async def stop(self) -> None:
