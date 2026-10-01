@@ -44,7 +44,7 @@ A `--gpu nvidia|amd|cpu` (or `-Gpu`) switch on every initialiser overrides the d
 |---|---|
 | NVIDIA, Windows + Linux | `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/<cu130\|cu126>` (unchanged) |
 | AMD, **Windows** (native ROCm, public preview) | `pip install --index-url https://repo.amd.com/rocm/whl-multi-arch/ "torch[device-<gfx>]==2.12.0+rocm7.14.1" "torchvision[device-<gfx>]==0.27.0+rocm7.14.1" "torchaudio==2.11.0+rocm7.14.1"` - Python 3.11-3.14, AMD Software Adrenalin 26.x. `device-all` works for any supported card (bigger download). |
-| AMD, Linux | **not built yet.** The Linux containers are CUDA images; `linux/initialize.sh` detects an AMD card and says so. The planned shape: a `rocm/dev-ubuntu-24.04` based image with torch from `https://download.pytorch.org/whl/rocm7.1`, the container given `/dev/kfd` + `/dev/dri` and the `video`/`render` groups instead of the NVIDIA runtime. |
+| AMD, Linux | a second container image per studio, `ai/<tool>:rocm`, built from `linux/Dockerfile.rocm` and run with `linux/compose.rocm.yml` - see *Linux containers on AMD* below. |
 | CPU | `--index-url https://download.pytorch.org/whl/cpu` |
 
 Pinned torch versions per studio stay as they are for NVIDIA; for AMD on Windows the torch version is
@@ -68,6 +68,44 @@ release - the initialiser installs the studio's other requirements *after* torch
 | RX 6700/6750 | `gfx1031` → use `device-all` | |
 | RX 6600/6650/6500/6400, RX 5000, Vega | not in the wheel | CPU build + a clear message |
 
+## Linux containers on AMD (ROCm)
+
+Every studio keeps its CUDA image and gains a ROCm one. Same layout, same bind mounts, same ports and
+`ai.tool` label, so the launcher, the hub and `ai run` treat both alike; `.gpu.json` (`backend: rocm`,
+`platform: linux`) decides which one the scripts use.
+
+| | CUDA image (unchanged) | ROCm image |
+|---|---|---|
+| file | `linux/Dockerfile` + `linux/compose.yml` | `linux/Dockerfile.rocm` + `linux/compose.rocm.yml` |
+| base | `nvidia/cuda:13.0.3-cudnn-devel-ubuntu24.04` | `rocm/dev-ubuntu-24.04:7.1.1` (brings `rocminfo` / `rocm-smi`) |
+| image tag | `ai/<tool>:latest` | `ai/<tool>:rocm` |
+| GPU access | `runtime: nvidia`, `NVIDIA_*` env | `devices: [/dev/kfd, /dev/dri]`, `group_add: ["${AI_VIDEO_GID}", "${AI_RENDER_GID}"]`, `security_opt: [seccomp=unconfined]`, `HSA_OVERRIDE_GFX_VERSION` passed through from `linux/.env` |
+| torch | the studio's CUDA pin | the official PyTorch ROCm wheel closest to that pin (table below), from `https://download.pytorch.org/whl/<rocm tag>` |
+
+PyTorch ROCm wheels available (October 2026): `rocm7.1` → torch 2.13.0 (py3.10–3.14), `rocm7.0` → 2.10.0,
+`rocm6.4` → 2.9.1, `rocm7.2` → 2.14.1. Chosen per studio:
+
+| studio | CUDA pin | ROCm image installs |
+|---|---|---|
+| Image Studio | torch 2.13.0 / py3.12 | `torch==2.13.0 torchvision==0.28.0` from `rocm7.1` |
+| Voice Studio | torch 2.11.0 / py3.11 | `torch==2.13.0 torchaudio==2.13.0` from `rocm7.1` (no 2.11 ROCm build; Chatterbox helper: `rocm7.0` torch 2.10.0 or skipped if its pins cannot be met - say so) |
+| Video Studio | torch 2.13.0 / py3.12 | `torch==2.13.0 torchvision==0.28.0 torchaudio==2.13.0` from `rocm7.1` |
+| Music Studio | torch 2.10.0 / py3.12 | `torch==2.10.0` from `rocm7.0` |
+| Forge | torch 2.10.0 / py3.13 | `torch==2.10.0 torchvision==0.25.0` from `rocm7.0` |
+
+The Dockerfile keeps everything else identical to the CUDA one (Python version from deadsnakes, the same
+`constraints.txt`, the same entrypoint); it drops the CUDA-only wheels (SageAttention, flash-attn,
+bitsandbytes, triton-windows, nvidia-* packages, `TORCH_CUDA_ARCH_LIST`) and the `nvcc`-dependent steps.
+Workarounds for cards outside AMD's Linux matrix: `linux/.env` may set `HSA_OVERRIDE_GFX_VERSION`
+(`10.3.0` for RX 6700/6600 gfx103x, `11.0.0` for gfx1103 iGPUs); the initialiser writes it when it knows the
+chip.
+
+`linux/initialize.sh` on an AMD box: checks `/dev/kfd` + `/dev/dri` (the amdgpu driver is in the Ubuntu
+kernel; no ROCm host install is needed), installs Docker without the NVIDIA toolkit, adds the user to the
+`video` and `render` groups, builds `ai/<tool>:rocm`, reads the gfx target with `rocminfo` inside the
+container, writes `.gpu.json`, runs the boot test. `run.sh` / `stop.sh` / `test.sh` pick the compose file
+from `.gpu.json` (or `AI_GPU=rocm|cuda` to force). The `ai` launcher and the hub do the same.
+
 ## What changes per studio on AMD
 
 Common: `torch.cuda.*` keeps working (ROCm presents itself as the `cuda` device), so the apps' device
@@ -87,12 +125,14 @@ CUDA graphs. The initialisers skip those wheels with a one-line note.
 ## Hub
 
 `hub/gpu.py` reads the card through whichever tool exists: `nvidia-smi`, else `rocm-smi`/`amd-smi`
-(Linux), else Windows performance counters (`GPU Adapter Memory` / `GPU Process Memory`, any vendor).
+(Linux), else Windows performance counters (`GPU Adapter Memory` / `GPU Process Memory`, any vendor). On
+Linux the hub starts a studio's ROCm container (`compose.rocm.yml`, image `ai/<tool>:rocm`) when its
+`.gpu.json` says `rocm`.
 The policies (one model at a time under 20 GB, share above) are the same on both vendors; the
 check-up page says which vendor and backend every studio was set up for.
 
 ## Status
 
-Implemented for every studio and the hub; verified end to end on NVIDIA (this machine). The AMD path
-was built against AMD's published Windows wheels and matrices and is **awaiting a run on AMD
-hardware** - the READMEs say so until that run is done.
+Implemented for every studio and the hub on both platforms; verified end to end on NVIDIA (this machine).
+The AMD paths - Windows (AMD's native wheels) and Linux (the ROCm containers, which build and boot here
+without a GPU) - are **awaiting a run on AMD hardware**; the READMEs say so until that run is done.

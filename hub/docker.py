@@ -86,6 +86,17 @@ def compose_env() -> dict[str, str]:
     if hasattr(os, "getuid"):
         env["AI_UID"] = str(os.getuid())
         env["AI_GID"] = str(os.getgid())
+        # ROCm containers join the host's video/render groups to reach /dev/kfd and /dev/dri.
+        try:
+            import grp
+
+            for name, var in (("video", "AI_VIDEO_GID"), ("render", "AI_RENDER_GID")):
+                try:
+                    env[var] = str(grp.getgrnam(name).gr_gid)
+                except KeyError:
+                    env[var] = "44" if name == "video" else "992"
+        except ImportError:
+            pass
     return env
 
 
@@ -95,7 +106,7 @@ def compose(compose_file: Path, profiles: tuple[str, ...] = (), overrides: tuple
         return None
     cmd = [*dk]
     if dk[0] == "sudo":
-        cmd = ["sudo", "-n", "--preserve-env=AI_UID,AI_GID,AI_CACHE,AI_BIND,AI_HUB_URL", *dk[2:]]
+        cmd = ["sudo", "-n", "--preserve-env=AI_UID,AI_GID,AI_VIDEO_GID,AI_RENDER_GID,AI_CACHE,AI_BIND,AI_HUB_URL", *dk[2:]]
     cmd += ["compose", "-f", str(compose_file)]
     for o in overrides:
         cmd += ["-f", str(o)]

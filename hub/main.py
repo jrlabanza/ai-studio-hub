@@ -287,7 +287,7 @@ def create_app(hub: Hub) -> FastAPI:
             inst, why = t.spec.installed(tdir)
             model_ok, model_why = t.spec.model_present(tdir) if inst else (False, "")
             backend = t.spec.backend(tdir)
-            where = f"container image ai/{t.spec.docker_service}:latest · {tdir}" if backend == "docker" else str(t.spec.python(tdir))
+            where = f"container image {t.spec.docker_image(tdir)} · {tdir}" if backend == "docker" else str(t.spec.python(tdir))
             checks.append({"name": f"{t.spec.name} environment", "ok": inst, "detail": why or where})
             if inst:
                 checks.append({"name": f"{t.spec.name} models", "ok": model_ok, "detail": model_why or "present"})

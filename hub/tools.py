@@ -217,8 +217,20 @@ class ToolSpec:
     def is_checkout(self, tool_dir: Path) -> bool:
         return tool_dir.is_dir() and all((tool_dir / m).exists() for m in self.checkout_markers)
 
+    def docker_backend(self, tool_dir: Path) -> str:
+        """``rocm`` when the studio was set up for an AMD card on Linux (and the ROCm packaging exists), else ``cuda``."""
+        prof = self.gpu_profile(tool_dir)
+        if prof.get("backend") == "rocm" and (tool_dir / "linux" / "compose.rocm.yml").is_file():
+            return "rocm"
+        return "cuda"
+
     def compose_file(self, tool_dir: Path) -> Path:
+        if self.docker_backend(tool_dir) == "rocm":
+            return tool_dir / "linux" / "compose.rocm.yml"
         return tool_dir / "linux" / "compose.yml"
+
+    def docker_image(self, tool_dir: Path) -> str:
+        return f"ai/{self.docker_service}:{'rocm' if self.docker_backend(tool_dir) == 'rocm' else 'latest'}"
 
     def container_name(self) -> str:
         return f"ai-{self.docker_service}"
@@ -245,8 +257,8 @@ class ToolSpec:
         if backend == "docker":
             if not dk.available():
                 return False, "Docker is not reachable - is it installed and are you in the docker group? (linux/initialize.sh sets it up)"
-            if not dk.image_exists(f"ai/{self.docker_service}:latest"):
-                return False, f"Container image not built yet - run linux/initialize.sh in {tool_dir.name} (or: ai init {self.docker_service})"
+            if not dk.image_exists(self.docker_image(tool_dir)):
+                return False, f"Container image {self.docker_image(tool_dir)} not built yet - run linux/initialize.sh in {tool_dir.name} (or: ai init {self.docker_service})"
             return True, ""
         if IS_LINUX:
             return False, "Not set up yet - run linux/initialize.sh in the tool folder once (or: ai init <tool>)"
@@ -500,7 +512,8 @@ class TtsTool(ToolSpec):
     def docker_services(self, tool_dir: Path, cfg: dict[str, Any]) -> tuple[list[str], tuple[str, ...]]:
         # Chatterbox is a second container (incompatible dependency set) sharing this one's network
         # namespace; it exists only when its image was built (run.sh --with-chatterbox / initialize.sh).
-        if cfg.get("chatterbox", True) and dk.image_exists("ai/chatterbox:latest"):
+        tag = "rocm" if self.docker_backend(tool_dir) == "rocm" else "latest"
+        if cfg.get("chatterbox", True) and dk.image_exists(f"ai/chatterbox:{tag}"):
             return [self.docker_service, "chatterbox"], ("chatterbox",)
         return [self.docker_service], ()
 
