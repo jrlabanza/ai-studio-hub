@@ -766,7 +766,7 @@ class MusicTool(ToolSpec):
     docker_port = 7863
     supports_unload = False
     model_kinds = (
-        {"id": "model", "label": "Models", "dir": "models", "layout": "folder", "use": False, "sources": ["hf"], "catalog": [
+        {"id": "model", "label": "Models", "dir": "models", "layout": "folder", "use": True, "sources": ["hf"], "catalog": [
             {"name": "YuE2-3B", "label": "YuE2-3B", "detail": "The song model (the only one the studio loads)", "size_h": "~6.8 GB",
              "source": {"type": "hf", "repo": "m-a-p/YuE2-3B", "allow_patterns": ["*.json", "*.txt", "*.py", "*.safetensors", "*.model", "*.tiktoken", "licenses/*"]}},
             {"name": "YuE2-Vae", "label": "YuE2 VAE", "detail": "Audio decoder", "size_h": "~0.5 GB",
@@ -778,7 +778,7 @@ class MusicTool(ToolSpec):
             {"name": "MERT-v2-FullSong", "label": "MERT-v2-FullSong", "detail": "Audio encoder for SheetSage2", "size_h": "~2.4 GB",
              "source": {"type": "hf", "repo": "m-a-p/MERT-v2-FullSong", "allow_patterns": ["*.py", "*.json", "*.safetensors"]}}]},
     )
-    model_note = "Music Studio always loads models/YuE2-3B; keep the folder names as listed."
+    model_note = "The song model is any YuE2 stage-1 folder in models/ (Use switches it); the VAEs, SheetSage2 and MERT keep their names."
 
     import_slots = (
         {'id': 'voice', 'label': 'Sing it in this voice - as the voice reference', 'kinds': ['audio']},

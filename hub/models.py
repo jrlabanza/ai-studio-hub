@@ -215,6 +215,12 @@ class Models:
                 pass
         elif tool.id == "music":
             out["model"] = "YuE2-3B"
+            if tool.running:
+                try:
+                    r = await self.hub.http.get(f"{tool.base_url}/api/status", timeout=3.0)
+                    out["model"] = str(r.json().get("model_dir") or out["model"])
+                except Exception:
+                    pass
         return out
 
     async def _delegated(self, tool: "ManagedProcess") -> dict[str, Any]:
@@ -592,7 +598,13 @@ class Models:
             r.raise_for_status()
             return {"ok": True, "message": f"Video Studio will use {v.get('label', name)} for {engine} (and {engine} is now the default engine)"}
         if tool.id == "music":
-            raise ValueError("Music Studio always uses the YuE2-3B model in its models folder")
+            if not await tool.ensure_running():
+                raise RuntimeError(tool.error or "Music Studio could not start")
+            r = await self.hub.http.post(f"{tool.base_url}/api/models/select", json={"name": name}, timeout=20.0)
+            if r.status_code >= 400:
+                raise RuntimeError(r.text[:200])
+            d = r.json()
+            return {"ok": True, "message": f"Music Studio now uses {name}" + (" - reloading it" if d.get("reloading") else "")}
         raise ValueError("this studio has no selectable models")
 
     async def delegated_download(self, tool: "ManagedProcess", payload: dict[str, Any]) -> dict[str, Any]:
