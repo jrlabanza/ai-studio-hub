@@ -187,7 +187,7 @@ class Models:
                     for c in kind.get("catalog", []):
                         catalog.append({**c, "installed": c["name"] in have})
                     entry["kinds"].append({"id": kind["id"], "label": kind["label"], "dir": str(self.kind_dir(tool, kind)),
-                                           "layout": kind["layout"], "sources": kind.get("sources", ["hf", "url"]),
+                                           "layout": kind["layout"], "sources": kind.get("sources", ["hf", "url"]), "civitai": kind.get("civitai"),
                                            "installed": installed, "catalog": catalog, "selectable": bool(kind.get("use"))})
                 entry["active"] = await self._active(tool)
             studios.append(entry)

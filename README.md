@@ -37,6 +37,10 @@ and Music Studio:*
 
 ![Library](docs/screenshots/library.png)
 
+*Models: every studio's models in one place - installed, downloadable, selectable:*
+
+![Models](docs/screenshots/models.png)
+
 *Settings: the GPU policy and timers, and one row per studio:*
 
 ![Settings](docs/screenshots/settings.png)
@@ -119,6 +123,12 @@ through `nvidia-smi`, `rocm-smi`/`amd-smi` or the Windows GPU performance counte
 check-up page shows which vendor each studio was set up for. [docs/gpu.md](docs/gpu.md) is the contract and
 the per-studio detail.
 
+**Pinned memory.** Settings → Graphics card → *Pinned memory in the studios* sets `AI_PIN_MEMORY=1|0` for
+every studio the hub starts. Page-locked host RAM makes the CPU↔GPU weight transfers of the offload modes
+faster (Image Studio's offload profiles, Music Studio's low-VRAM swap, Forge's `--pin-shared-memory`,
+Video Studio's engine); each studio reads the variable, defaults to on for CUDA and off for ROCm, and has
+its own toggle that overrides the hub. Turn it off when RAM is short - pinned memory cannot be swapped out.
+
 ## How the auto-loader works
 
 Every request that needs the GPU (Generate, Enhance, Load model, Start engine, Sing, Transcribe, a Forge txt2img …) passes through the hub first. Before forwarding it the hub:
@@ -151,7 +161,8 @@ Also built in:
 * **Studios** — each tool runs inside the shell (Alt+1 … Alt+5). Every studio implements the same design language natively (see [docs/design.md](docs/design.md)), so it looks the same on its own and inside the hub; the shell only keeps the studio's light/dark theme in step with its own (Settings → Appearance) and hides the studio's own top-bar branding, since the shell shows its name.
 * **Library** — every image, clip, video and song the studios have ever made, in one searchable grid with a viewer, downloads and "open folder".
 * **Send to…** — from the Library viewer, hand any output straight to another studio: an image becomes the start frame in Video Studio or a reference in Image Studio's Edit & Combine, a voice clip becomes the reference voice for Music Studio's "sing it in this voice", a song goes to Voice Studio's speech-to-speech, a video to its dubbing. No download, no upload: the hub opens the target studio, waits for it, and drops the file into the slot you chose ([docs/handoff.md](docs/handoff.md) lists every slot and the small receiver each studio implements). It reads the tools' output folders directly (Forge's prompts come from the PNG metadata), so it works even when a studio is off.
-* **Settings** — GPU policy and timers, appearance, network, per-studio folders / ports / autostart / pinning, and a check-up of what is installed.
+* **Models** — one page for every studio's models: what is installed (with sizes and dates), the catalogue each studio was built around, and which model is in use. Download from HuggingFace, Civitai or a direct link straight into the right folder (resumable, checksum-verified, with a live Downloads panel), verify or redownload an installed model, delete it, or press **Use** to switch a studio to it - the hub frees the GPU first. Voice and Video Studio keep their own catalogues and the hub drives them ([docs/models.md](docs/models.md)).
+* **Settings** — GPU policy and timers, pinned memory, appearance, network, HuggingFace / Civitai tokens, per-studio folders / ports / autostart / pinning, and a check-up of what is installed.
 * Light and dark themes; the theme is applied inside the studios too.
 
 ## Moved a tool folder? The hub repairs it

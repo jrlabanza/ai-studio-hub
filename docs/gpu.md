@@ -122,6 +122,18 @@ code is untouched. These are the CUDA-only extras and their AMD behaviour:
 Not available on Windows ROCm at all: Triton, xformers, flash-attn, SageAttention, bitsandbytes,
 CUDA graphs. The initialisers skip those wheels with a one-line note.
 
+## Pinned memory
+
+One convention for all studios: the environment variable `AI_PIN_MEMORY` (`1` / `0`) decides whether a
+studio pins (page-locks) the host-side copies of weights it moves to the GPU repeatedly - the offload
+profiles in Image Studio, the low-VRAM swap in Music Studio, `--pin-shared-memory` in Forge, ComfyUI's
+pinned allocator in Video Studio, the per-request audio tensors in Voice Studio. Unset, a studio defaults
+to **on for CUDA and off for ROCm / CPU** (ComfyUI's convention: pinned memory on ROCm has known
+problems); each studio also has its own setting that overrides the variable, and reports the resolved
+state in its status API. The hub sets the variable for every studio it starts from Settings → Graphics
+card → *Pinned memory in the studios* (on by default); on Linux the hub's compose overrides pass it into
+the containers. Pinned memory cannot be swapped out, so on machines with little RAM turn it off.
+
 ## Hub
 
 `hub/gpu.py` reads the card through whichever tool exists: `nvidia-smi`, else `rocm-smi`/`amd-smi`

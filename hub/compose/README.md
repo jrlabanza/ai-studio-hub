@@ -7,6 +7,7 @@ starts a studio's container on Linux it runs
 
 so the studio's own packaging stays untouched and the hub only adds what it needs: mostly
 "start idle" switches, because the hub - not the container's boot - decides when a model is
-loaded onto the GPU. Video Studio needs no file (the hub sets `engine_autostart: false` in its
-`data/settings.json`, see tools.py); Music Studio and Forge already start without
-touching the GPU.
+loaded onto the GPU (Video Studio starts idle because the hub sets `engine_autostart: false` in its
+`data/settings.json`, see tools.py; Music Studio and Forge already start without touching the GPU).
+Every file also passes `AI_PIN_MEMORY` (Settings → Graphics card → Pinned memory) into the container,
+because a studio's own compose file lists its environment explicitly and would otherwise drop it.

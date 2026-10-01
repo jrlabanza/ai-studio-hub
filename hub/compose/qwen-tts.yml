@@ -5,3 +5,9 @@ services:
   qwen-tts:
     environment:
       QWEN_EXTRA_ARGS: "--preload="
+      # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.
+      AI_PIN_MEMORY: ${AI_PIN_MEMORY:-1}
+  chatterbox:
+    environment:
+      # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.
+      AI_PIN_MEMORY: ${AI_PIN_MEMORY:-1}

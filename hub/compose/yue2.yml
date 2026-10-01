@@ -1,0 +1,7 @@
+# Hub override for Music Studio's linux/compose.yml (merged with it by `docker compose -f a -f b`).
+# Only passes the hub's pinned-memory choice through; the studio starts idle on its own.
+services:
+  yue2:
+    environment:
+      # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.
+      AI_PIN_MEMORY: ${AI_PIN_MEMORY:-1}

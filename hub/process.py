@@ -338,7 +338,8 @@ class ManagedProcess:
     # ------------------------------------------------------------------ launching
     def _launch_native(self, tdir: Path, cfg: dict[str, Any], port: int) -> tuple[subprocess.Popen, bool]:
         argv = self.spec.argv(tdir, port, cfg)
-        env = {**os.environ, **self.spec.env(tdir, cfg), "AI_HUB_URL": f"http://127.0.0.1:{self.hub.settings.hub_port}"}
+        env = {**os.environ, **self.spec.env(tdir, cfg), "AI_HUB_URL": f"http://127.0.0.1:{self.hub.settings.hub_port}",
+               "AI_PIN_MEMORY": "1" if self.hub.settings.pin_memory else "0"}
         self._log(f"[hub] {time.strftime('%Y-%m-%d %H:%M:%S')} starting: {' '.join(argv)}")
         return winjob.popen_in_job(argv, cwd=str(tdir), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -355,7 +356,8 @@ class ManagedProcess:
             argv.append("--abort-on-container-exit")
         argv += services
         env = {**os.environ, **dk.compose_env(), **self.spec.docker_env(tdir, cfg),
-               "AI_HUB_URL": f"http://127.0.0.1:{self.hub.settings.hub_port}"}
+               "AI_HUB_URL": f"http://127.0.0.1:{self.hub.settings.hub_port}",
+               "AI_PIN_MEMORY": "1" if self.hub.settings.pin_memory else "0"}
         self._log(f"[hub] {time.strftime('%Y-%m-%d %H:%M:%S')} starting: {' '.join(argv)}")
         proc = subprocess.Popen(argv, cwd=str(tdir / "linux"), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",

@@ -4,3 +4,6 @@
 services:
   qwen-image:
     command: ["--no-autoload"]
+    environment:
+      # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.
+      AI_PIN_MEMORY: ${AI_PIN_MEMORY:-1}

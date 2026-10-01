@@ -551,6 +551,7 @@
       { key: "claim_wait_max_min", label: "Wait for a busy studio up to", type: "number", step: 1, min: 1, max: 600, unit: "min", help: "A request that needs the GPU waits this long for another studio's job before giving up." },
       { key: "vram_headroom_gb", label: "VRAM headroom", type: "number", step: 0.1, min: 0, max: 8, unit: "GB", help: "Extra free memory the hub tries to keep for the desktop and the browser." },
       { key: "release_ollama", label: "Release Ollama models when VRAM is short", type: "bool", help: "Music Studio's lyric writer uses a local Ollama model, which stays resident for minutes." },
+      { key: "pin_memory", label: "Pinned memory in the studios", type: "bool", help: "Page-locked RAM speeds up the CPU↔GPU weight transfers of offload modes. Applies the next time a studio starts; each studio can override it in its own settings. Turn off when RAM is short (studios default to off on AMD)." },
     ] },
     { title: "Appearance", lead: "The theme of the shell and, if you like, of the studios inside it.", fields: [
       { key: "theme", label: "Theme", type: "select", options: [["light", "Light"], ["dark", "Dark"]] },
