@@ -76,6 +76,8 @@ class Settings:
     brand_fonts_in_tools: bool = True
     stop_tools_on_exit: bool = True
     library_page_size: int = 60
+    hf_token: str = ""                   # HuggingFace token for gated models (Models page)
+    civitai_token: str = ""              # Civitai API key for downloads that need it
     tools: dict[str, dict[str, Any]] = field(default_factory=lambda: copy.deepcopy(DEFAULT_TOOLS))
 
     def to_dict(self) -> dict[str, Any]:

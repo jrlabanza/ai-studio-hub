@@ -12,6 +12,7 @@ from .config import APP_NAME, DEFAULT_TOOLS, PLATFORM, ROOT, ensure_dirs, load_s
 from .events import EventBus
 from .gpu import GpuMonitor
 from .library import Library
+from .models import Models
 from .orchestrator import Orchestrator
 from .process import ManagedProcess
 from .tools import TOOL_ORDER, TOOLS
@@ -29,6 +30,7 @@ class Hub:
         self.tools: dict[str, ManagedProcess] = {tid: ManagedProcess(TOOLS[tid], self) for tid in self.order}
         self.orchestrator = Orchestrator(self)
         self.library = Library(self)
+        self.models = Models(self)
         self.started_at = time.time()
         self.hub_port: int = load_settings().hub_port
         self.proxy_ports: dict[str, int] = {}
@@ -52,6 +54,18 @@ class Hub:
         for tool in self.tools.values():
             if tool.enabled and tool.cfg.get("autostart"):
                 self._bg.append(asyncio.create_task(tool.start()))
+            elif tool.enabled:
+                # A studio left running (its container, or a copy started by hand) is adopted on the spot,
+                # so a hub restart never shows a running studio as stopped.
+                self._bg.append(asyncio.create_task(self._adopt(tool)))
+
+    async def _adopt(self, tool) -> None:
+        try:
+            port = tool.spec.resolved_port(tool.tool_dir, tool.cfg) or tool.port
+            if port and await tool.probe(port):
+                await tool.start()
+        except Exception:
+            pass
 
     async def stop(self) -> None:
         await self.orchestrator.stop()

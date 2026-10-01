@@ -231,6 +231,101 @@ def create_app(hub: Hub) -> FastAPI:
                 targets.append({"tool": tid, "name": t.spec.name, "color": t.spec.color, "number": t.spec.number, "slots": slots})
         return {"targets": targets}
 
+    # ------------------------------------------------------------------ models
+    def _kind(t, kind_id: str) -> dict[str, Any]:
+        k = next((k for k in t.spec.model_kinds if k["id"] == kind_id), None)
+        if not k:
+            raise HTTPException(404, "Unknown model kind for this studio")
+        return k
+
+    @app.get("/api/models")
+    async def api_models() -> dict[str, Any]:
+        return await hub.models.snapshot()
+
+    @app.get("/api/models/downloads")
+    async def api_models_downloads() -> dict[str, Any]:
+        return {"downloads": [d.to_dict() for d in hub.models.downloads.values()]}
+
+    @app.post("/api/models/download")
+    async def api_models_download(request: Request) -> dict[str, Any]:
+        body = await request.json()
+        t = _tool(str(body.get("tool", "")))
+        if t.spec.model_delegate:
+            return await hub.models.delegated_download(t, body)
+        kind = _kind(t, str(body.get("kind", "")))
+        source = body.get("source") or {}
+        if source.get("type") not in ("hf", "hf_file", "url", "civitai"):
+            raise HTTPException(400, "source.type must be hf, hf_file, url or civitai")
+        name = str(body.get("name") or source.get("repo", "").split("/")[-1] or source.get("path", "").split("/")[-1] or "model")
+        try:
+            dl = hub.models.start(t, kind, source, name)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True, "download": dl.to_dict()}
+
+    @app.post("/api/models/downloads/{dl_id}/cancel")
+    async def api_models_cancel(dl_id: str) -> dict[str, Any]:
+        return {"ok": hub.models.cancel(dl_id)}
+
+    @app.post("/api/models/downloads/clear")
+    async def api_models_clear() -> dict[str, Any]:
+        hub.models.clear_finished()
+        return {"ok": True}
+
+    @app.post("/api/models/delete")
+    async def api_models_delete(request: Request) -> dict[str, Any]:
+        body = await request.json()
+        t = _tool(str(body.get("tool", "")))
+        if t.spec.model_delegate:
+            return await hub.models.delegated_action(t, "delete", str(body.get("name", "")))
+        kind = _kind(t, str(body.get("kind", "")))
+        try:
+            p = hub.models.delete(t, kind, str(body.get("name", "")))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True, "deleted": str(p)}
+
+    @app.post("/api/models/delegated/{action}")
+    async def api_models_delegated(action: str, request: Request) -> dict[str, Any]:
+        body = await request.json()
+        t = _tool(str(body.get("tool", "")))
+        try:
+            return await hub.models.delegated_action(t, action, str(body.get("target", "")))
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/models/verify")
+    async def api_models_verify(request: Request) -> dict[str, Any]:
+        body = await request.json()
+        t = _tool(str(body.get("tool", "")))
+        kind = _kind(t, str(body.get("kind", "")))
+        return await hub.models.verify(t, kind, str(body.get("name", "")))
+
+    @app.post("/api/models/use")
+    async def api_models_use(request: Request) -> dict[str, Any]:
+        body = await request.json()
+        t = _tool(str(body.get("tool", "")))
+        try:
+            return await hub.models.use(t, str(body.get("kind", "")), str(body.get("name", "")))
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(400, str(exc))
+        except Exception as exc:
+            raise HTTPException(502, f"{t.spec.name}: {exc}")
+
+    @app.get("/api/models/civitai")
+    async def api_models_civitai(q: str, types: str = "Checkpoint", base: str = "", limit: int = 12) -> dict[str, Any]:
+        try:
+            return {"items": await hub.models.civitai_search(q, types, limit, base)}
+        except Exception as exc:
+            raise HTTPException(502, f"Civitai: {exc}")
+
+    @app.get("/api/models/hf")
+    async def api_models_hf(repo: str) -> dict[str, Any]:
+        try:
+            return await hub.models.hf_info(repo)
+        except Exception as exc:
+            raise HTTPException(502, f"HuggingFace: {exc}")
+
     # ------------------------------------------------------------------ library
     @app.get("/api/library")
     async def api_library(tool: str = "", q: str = "", offset: int = 0, limit: int = 0, kind: str = "") -> dict[str, Any]:

@@ -30,6 +30,10 @@
         <span class="nav-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
         <span class="nav-label">Library</span>
       </a>
+      <a class="nav-item" data-view="models" href="#/models">
+        <span class="nav-ico"><svg viewBox="0 0 24 24"><path d="M12 3 3 7.5 12 12l9-4.5L12 3z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5 12 21l9-4.5"/></svg></span>
+        <span class="nav-label">Models</span>
+      </a>
       <a class="nav-item" data-view="settings" href="#/settings">
         <span class="nav-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>
         <span class="nav-label">Settings</span>
@@ -156,6 +160,20 @@
       </div>
       <div class="lib-grid" id="libGrid"></div>
       <div class="lib-foot"><button class="btn" id="libMore" hidden>Show more</button></div>
+    </section>
+
+    <!-- ---------------------------------------------------------- models -->
+    <section class="view view-models" id="view-models" hidden>
+      <div class="lib-bar">
+        <div class="chips" id="modelChips"><button class="chip filter active" data-tool="">All studios</button></div>
+        <span class="lib-count" id="modelCount"></span>
+        <button class="btn small" id="modelRefresh" title="Rescan the model folders">Rescan</button>
+      </div>
+      <div class="dl-panel card" id="dlPanel" hidden>
+        <div class="card-head"><div><h3>Downloads</h3><p class="lead">Running in the hub; you can leave this page. Partial files resume.</p></div><button class="btn small ghost" id="dlClear">Clear finished</button></div>
+        <div class="dl-list" id="dlList"></div>
+      </div>
+      <div class="models-grid" id="modelsGrid"><div class="empty">Loading…</div></div>
     </section>
 
     <!-- ---------------------------------------------------------- settings -->

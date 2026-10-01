@@ -10,6 +10,7 @@
     frames: {}, frameGen: {}, frameWasRunning: {}, frameReady: {}, events: [], unread: 0, es: null, connected: false, handoff: null,
     lib: { tool: "", q: "", items: [], offset: 0, total: 0, loading: false, counts: {} }, libTimer: null,
     settingsDirty: false, recentLoadedAt: 0, lastToast: { text: "", at: 0 }, focusSent: null,
+    models: { data: null, tool: "", loading: false, downloads: {} },
   };
   // Names, colours and numbers come from the hub (hub/tools.py); these maps are filled from the first state.
   const TOOL_NAMES = {}, TOOL_COLORS = {}, TOOL_NUMS = {};
@@ -78,7 +79,7 @@
   // ------------------------------------------------------------------ router
   function route() {
     const hash = location.hash || "#/home";
-    const m = hash.match(/^#\/(home|tool|library|settings)(?:\/(\w+))?/);
+    const m = hash.match(/^#\/(home|tool|library|models|settings)(?:\/(\w+))?/);
     const view = m ? m[1] : "home";
     const tool = m && m[2];
     showView(view, tool);
@@ -103,10 +104,11 @@
     } else {
       S.tool = null;
       num.hidden = true;
-      $("#topTitle").textContent = { home: "Home", library: "Library", settings: "Settings" }[view] || "Home";
-      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", settings: "How the hub shares the GPU" }[view] || "";
+      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings" }[view] || "Home";
+      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU" }[view] || "";
       sendFocus(null);
       if (view === "library") loadLibrary(true);
+      if (view === "models") { if (tool) S.models.tool = tool; loadModels(); }
       if (view === "settings") renderSettings(true);
     }
     if (view === "home") { renderHome(); loadRecent(); }
@@ -561,6 +563,10 @@
       { key: "open_browser", label: "Open the browser on start", type: "bool" },
       { key: "stop_tools_on_exit", label: "Stop all studios when the hub closes", type: "bool" },
     ] },
+    { title: "Models", lead: "Tokens the Models page uses for downloads. Stored on this PC only.", fields: [
+      { key: "hf_token", label: "HuggingFace token", type: "password", help: "Needed for gated repositories (huggingface.co/settings/tokens)" },
+      { key: "civitai_token", label: "Civitai API key", type: "password", help: "Needed for some Civitai downloads (civitai.com/user/account)" },
+    ] },
   ];
 
   function renderSettings(rebuild) {
@@ -572,7 +578,7 @@
         ${sec.fields.map((f) => `<div class="field" data-key="${f.key}"><label>${esc(f.label)}</label>${f.help ? `<div class="help">${esc(f.help)}</div>` : ""}<div class="control">${control(f, s[f.key])}</div></div>`).join("")}</section>`).join("")
         + `<section class="card"><h3>Studios</h3><p class="lead">Ports are used on this PC only; the shell talks to the entrance port. Pinned studios are never stopped for being idle.</p><div class="tool-settings" id="toolSettings"></div></section>`
         + `<section class="card"><h3>Check-up</h3><p class="lead">What the hub found on this PC.</p><ul class="doctor" id="doctorList"><li>Loading…</li></ul></section>`
-        + `<section class="card"><h3>Keyboard</h3><p class="lead">Shortcuts work anywhere in the shell.</p><div class="shortcuts"><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>${S.state.order.length}</kbd><span>Open a studio</span><kbd>Alt</kbd>+<kbd>H</kbd><span>Home</span><kbd>Alt</kbd>+<kbd>L</kbd><span>Library</span><kbd>Alt</kbd>+<kbd>A</kbd><span>Activity</span><kbd>Alt</kbd>+<kbd>T</kbd><span>Theme</span><kbd>Alt</kbd>+<kbd>G</kbd><span>Free the GPU</span></div>
+        + `<section class="card"><h3>Keyboard</h3><p class="lead">Shortcuts work anywhere in the shell.</p><div class="shortcuts"><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>${S.state.order.length}</kbd><span>Open a studio</span><kbd>Alt</kbd>+<kbd>H</kbd><span>Home</span><kbd>Alt</kbd>+<kbd>L</kbd><span>Library</span><kbd>Alt</kbd>+<kbd>M</kbd><span>Models</span><kbd>Alt</kbd>+<kbd>A</kbd><span>Activity</span><kbd>Alt</kbd>+<kbd>T</kbd><span>Theme</span><kbd>Alt</kbd>+<kbd>G</kbd><span>Free the GPU</span></div>
           <p class="lead" style="margin-top:14px">${esc(st.app.name)} ${esc(st.app.version)} · ${esc(st.app.platform || "")} · hub on port ${st.app.hub_port} · <a href="/api/docs" target="_blank">API</a></p></section>`;
       grid.querySelectorAll(".field").forEach((f) => f.addEventListener("change", onSettingChange));
       grid.querySelectorAll(".switch").forEach((b) => b.addEventListener("click", () => { b.classList.toggle("on"); onSettingChange({ currentTarget: b.closest(".field, .tool-row"), target: b }); }));
@@ -583,6 +589,7 @@
 
   function control(f, val) {
     if (f.type === "bool") return `<button type="button" class="switch ${val ? "on" : ""}" data-key="${f.key}" aria-label="${esc(f.label)}"></button>`;
+    if (f.type === "password" || f.type === "text") return `<input type="${f.type}" data-key="${f.key}" value="${esc(val || "")}" placeholder="${f.type === "password" ? "paste a token" : ""}" autocomplete="off">`;
     if (f.type === "select") return `<select data-key="${f.key}">${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(val) === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
     return `<input type="number" data-key="${f.key}" value="${esc(val)}" step="${f.step || 1}" ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""}>${f.unit ? `<span class="unit">${esc(f.unit)}</span>` : ""}`;
   }
@@ -595,6 +602,7 @@
     let val;
     if (ctl.classList.contains("switch")) val = ctl.classList.contains("on");
     else if (ctl.tagName === "SELECT") val = ctl.value;
+    else if (ctl.type === "password" || ctl.type === "text") val = ctl.value.trim();
     else val = parseFloat(ctl.value);
     try {
       S.settingsDirty = true;
@@ -639,6 +647,256 @@
     } catch (e) { /* ignore */ }
   }
 
+
+  // ------------------------------------------------------------------ models
+  const fmtBytes = (n) => { if (!n) return ""; const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return `${n.toFixed(i >= 3 ? 1 : 0)} ${u[i]}`; };
+  const isActiveDl = (d) => d && ["queued", "running", "verifying"].includes(d.status);
+
+  async function loadModels(force) {
+    const M = S.models;
+    if (M.loading) return;
+    M.loading = true;
+    if (!M.data || force) $("#modelCount").textContent = "scanning…";
+    try {
+      M.data = await api("/api/models");
+      M.downloads = {};
+      for (const d of M.data.downloads || []) M.downloads[d.id] = d;
+      renderModelChips();
+      renderModels();
+      renderDownloads();
+    } catch (e) { $("#modelsGrid").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+    M.loading = false;
+  }
+
+  function renderModelChips() {
+    const host = $("#modelChips");
+    const built = host.dataset.built;
+    const ids = S.models.data.studios.map((s) => s.tool).join(",");
+    if (built === ids) return;
+    host.dataset.built = ids;
+    host.innerHTML = `<button class="chip filter ${S.models.tool ? "" : "active"}" data-tool="">All studios</button>` + S.models.data.studios.map((s) => `<button class="chip filter ${S.models.tool === s.tool ? "active" : ""}" data-tool="${s.tool}" style="--tool:${s.color}">${esc(s.name)}</button>`).join("");
+  }
+
+  function dlFor(tool, kind, name) {
+    return Object.values(S.models.downloads).find((d) => isActiveDl(d) && d.tool === tool && d.kind === kind && d.name === name);
+  }
+
+  function renderModels() {
+    const M = S.models; if (!M.data) return;
+    const studios = M.data.studios.filter((s) => !M.tool || s.tool === M.tool);
+    let count = 0, bytes = 0;
+    const html = studios.map((s) => {
+      const kinds = (s.kinds || []).map((k) => {
+        const items = k.layout === "delegated" ? k.items : k.installed;
+        count += items.filter((i) => i.installed !== false).length;
+        bytes += items.reduce((a, i) => a + (i.installed === false ? 0 : (i.size || 0)), 0);
+        const rows = items.map((it) => modelRow(s, k, it, false)).join("");
+        const avail = k.layout === "delegated" ? "" : (k.catalog || []).filter((c) => !c.installed).map((c) => modelRow(s, k, c, true)).join("");
+        const canAdd = k.layout !== "delegated" && (k.sources || []).some((x) => x !== "hf" || k.layout === "folder");
+        return `<div class="mk" data-kind="${k.id}">
+          <div class="mk-head"><div><b>${esc(k.label)}</b><small title="${esc(k.dir || "")}">${esc(k.dir || "")}</small></div>
+            <span class="mk-count">${items.filter((i) => i.installed !== false).length}</span>
+            ${canAdd ? `<button class="btn small" data-act="add" data-kind="${k.id}">Add…</button>` : ""}</div>
+          ${rows || avail ? `<div class="mk-rows">${rows}${avail ? `<div class="mk-sub">Available</div>${avail}` : ""}</div>` : `<div class="empty small">Nothing here yet${canAdd ? " - use Add… to download one" : ""}.</div>`}
+        </div>`;
+      }).join("");
+      const off = s.mode === "delegated" && s.offline ? `<div class="note warn">${esc(s.name)} is not running - start it to see and manage its models.${s.error ? " " + esc(s.error) : ""} <button class="btn small" data-act="start">Start</button></div>` : "";
+      return `<section class="card studio-models" data-tool="${s.tool}" style="--tool:${s.color}">
+        <div class="sm-head"><div class="tool-num">${esc(s.number)}</div><div><h3>${esc(s.name)}</h3><p class="lead">${esc(s.note || "")}</p></div>${s.active && s.active.model ? `<span class="pill owner" title="Model in use">${esc(String(s.active.model).split("/").pop())}</span>` : ""}</div>
+        ${off}${kinds}
+      </section>`;
+    }).join("");
+    $("#modelsGrid").innerHTML = html || `<div class="empty">No studios.</div>`;
+    $("#modelCount").textContent = count ? `${count} installed · ${fmtBytes(bytes)}` : "";
+  }
+
+  function modelRow(s, k, it, available) {
+    const name = it.name;
+    const dl = dlFor(s.tool, k.id, name);
+    const active = s.active || {};
+    const inUse = (k.id === "model" && (active.model === name || active.model === name.split("/").pop())) || (k.id === "checkpoint" && active.checkpoint && (active.checkpoint === name || active.checkpoint.startsWith(name.replace(/\.[^.]+$/, "")))) || (k.id === "variant" && Object.values(active).includes(name));
+    const label = it.label && it.label !== name ? `<b>${esc(it.label)}</b><small class="mono">${esc(name)}</small>` : `<b class="${name.includes("/") ? "mono" : ""}">${esc(name)}</b>`;
+    const detail = [it.detail, it.group && it.group !== "tokenizer" ? it.group : "", it.partial ? "partially downloaded" : ""].filter(Boolean).join(" · ");
+    const size = it.size_h || fmtBytes(it.size);
+    const date = it.modified ? fmtAgo(it.modified) : "";
+    const btn = (act, text, cls = "", title = "") => `<button class="btn small ${cls}" data-act="${act}" data-kind="${k.id}" data-name="${esc(name)}" title="${esc(title)}">${text}</button>`;
+    let actions = "";
+    if (dl) actions = `<span class="dl-inline"><span class="spinner"></span> ${dl.percent != null ? dl.percent + "%" : dl.status}</span>${btn("cancel-dl", "Cancel", "ghost", "")}`;
+    else if (k.layout === "delegated") {
+      if (it.installed) actions = (k.selectable && it.group !== "tokenizer" ? btn("use", inUse ? "In use" : "Use", inUse ? "primary" : "", "Make this the studio's model") : "") + (s.tool === "video" ? btn("dl-delegated", "Redownload", "ghost") : "") + (it.group !== "tokenizer" ? btn("delete", "Delete", "ghost danger-text") : "");
+      else actions = btn("dl-delegated", it.partial ? "Resume" : "Download", "", s.tool === "tts" ? "Loads the model, downloading it first" : "");
+    } else if (available) actions = btn("download", "Download", "", `From ${it.source && it.source.repo ? it.source.repo : it.source && it.source.url ? it.source.url : "the source"}`);
+    else {
+      const cat = (k.catalog || []).find((c) => c.name === name);
+      actions = (k.selectable ? btn("use", inUse ? "In use" : "Use", inUse ? "primary" : "", "Switch the studio to this model") : "")
+        + (cat ? btn("verify", "Verify", "ghost", "Check every file against the source") + btn("download", "Redownload", "ghost", "Fetch again from the source (missing or wrong files are replaced)") : "")
+        + btn("delete", "Delete", "ghost danger-text", "Remove from disk");
+    }
+    return `<div class="mrow ${available ? "avail" : ""} ${inUse ? "inuse" : ""}">
+      <div class="mrow-main">${label}${detail ? `<small>${esc(detail)}</small>` : ""}</div>
+      <div class="mrow-meta">${esc(size)}${date ? `<small>${esc(date)}</small>` : ""}</div>
+      <div class="mrow-actions">${actions}</div>
+    </div>`;
+  }
+
+  async function onModelAction(e) {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const card = b.closest(".studio-models"); if (!card) return;
+    const tool = card.dataset.tool, act = b.dataset.act, kind = b.dataset.kind, name = b.dataset.name;
+    const s = S.models.data.studios.find((x) => x.tool === tool);
+    const k = s && (s.kinds || []).find((x) => x.id === kind);
+    const busy = (on) => { b.disabled = on; };
+    try {
+      if (act === "start") { await api(`/api/tools/${tool}/start`, { method: "POST" }); toast(`${s.name} is starting`, "ok", "The models appear when it is ready."); setTimeout(() => loadModels(true), 6000); setTimeout(() => loadModels(true), 20000); }
+      else if (act === "add") openAddModel(s, k);
+      else if (act === "download") {
+        const cat = (k.catalog || []).find((c) => c.name === name);
+        if (!cat) return;
+        busy(true);
+        const r = await api("/api/models/download", { method: "POST", body: { tool, kind, name, source: cat.source } });
+        S.models.downloads[r.download.id] = r.download; renderDownloads(); renderModels();
+        toast(`Downloading ${name}`, "ok", cat.size_h ? `${cat.size_h} - see the Downloads panel` : "");
+      }
+      else if (act === "dl-delegated") {
+        busy(true);
+        const body = tool === "video" ? { tool, variant_id: name } : { tool, name };
+        await api("/api/models/download", { method: "POST", body });
+        toast(`${s.name} is downloading ${name.split("/").pop()}`, "ok", tool === "video" ? "Progress shows on its Models tab and here." : "It loads when the download completes.");
+        setTimeout(() => loadModels(true), 3000);
+      }
+      else if (act === "cancel-dl") { const d = dlFor(tool, kind, name); if (d) await api(`/api/models/downloads/${d.id}/cancel`, { method: "POST", body: {} }); }
+      else if (act === "use") {
+        busy(true); b.innerHTML = `<span class="spinner"></span>`;
+        const r = await api("/api/models/use", { method: "POST", body: { tool, kind, name } });
+        toast(r.message || "Switched", "ok");
+        setTimeout(() => loadModels(true), 1500);
+      }
+      else if (act === "verify") {
+        busy(true); b.innerHTML = `<span class="spinner"></span>`;
+        const r = await api("/api/models/verify", { method: "POST", body: { tool, kind, name } });
+        toast(`${name}: ${r.message}`, r.ok ? "ok" : "warn", (r.missing || []).slice(0, 3).join(", "), 9000);
+        b.disabled = false; b.textContent = "Verify";
+      }
+      else if (act === "delete") {
+        if (!confirm(`Delete ${name} from ${s.name}? This removes it from disk.`)) return;
+        busy(true);
+        await api("/api/models/delete", { method: "POST", body: { tool, kind, name } });
+        toast(`Deleted ${name.split("/").pop()}`, "ok");
+        loadModels(true);
+      }
+    } catch (err) { toast(err.message, "error", "", 9000); busy(false); if (act === "use") b.textContent = "Use"; if (act === "verify") b.textContent = "Verify"; }
+  }
+
+  // ---- Add… dialog: HuggingFace repo / file, Civitai search, direct URL
+  function openAddModel(s, k) {
+    const sources = k.sources || ["hf", "url"];
+    const tabs = [["hf", "HuggingFace"], ["civitai", "Civitai"], ["url", "Direct link"]].filter(([id]) => sources.includes(id) || (id === "hf" && sources.includes("hf_file")));
+    const folder = k.layout === "folder";
+    openModal(`<div class="add-model" data-tool="${s.tool}" data-kind="${k.id}">
+      <div class="eyebrow">${esc(s.name)} · ${esc(k.label)}</div>
+      <h3 class="serif" style="font-size:26px;margin:4px 0 14px">Add a model</h3>
+      <div class="chips am-tabs">${tabs.map(([id, l], i) => `<button class="chip filter ${i ? "" : "active"}" data-tab="${id}">${l}</button>`).join("")}</div>
+      <div class="am-pane" data-pane="hf" ${tabs[0][0] !== "hf" ? "hidden" : ""}>
+        <p class="lead">${folder ? "A repository id such as <code>Qwen/Qwen-Image-2.1</code>. The whole repository is downloaded into a folder with the name you give it." : "A repository id and the file inside it; the single file lands in this folder."}</p>
+        <div class="am-row"><input type="text" id="amRepo" placeholder="owner/repository" spellcheck="false"><button class="btn" id="amLookup">Look up</button></div>
+        <div id="amHfInfo" class="am-info"></div>
+        <div class="am-row"><label>Save as <input type="text" id="amName" placeholder="${folder ? "folder name" : "file name"}"></label><button class="btn primary" id="amHfGo" disabled>Download</button></div>
+      </div>
+      <div class="am-pane" data-pane="civitai" ${tabs[0][0] !== "civitai" ? "hidden" : ""}>
+        <p class="lead">Search Civitai for ${esc((k.civitai && k.civitai.types) || "models")}${k.civitai && k.civitai.base ? ` for ${esc(k.civitai.base)}` : ""}. The latest version's primary file is downloaded and checked against its SHA-256.</p>
+        <div class="am-row"><input type="search" id="amCiv" placeholder="search…" ${k.civitai && k.civitai.base ? `data-base="${esc(k.civitai.base)}"` : ""} data-types="${esc((k.civitai && k.civitai.types) || "")}"><button class="btn" id="amCivGo">Search</button></div>
+        <div id="amCivList" class="am-list"></div>
+      </div>
+      <div class="am-pane" data-pane="url" ${tabs[0][0] !== "url" ? "hidden" : ""}>
+        <p class="lead">Any direct download link (a .safetensors file, a Civitai or HuggingFace file URL…). Resumes if interrupted.</p>
+        <div class="am-row"><input type="url" id="amUrl" placeholder="https://…" spellcheck="false"></div>
+        <div class="am-row"><label>Save as <input type="text" id="amUrlName" placeholder="file name (from the link if empty)"></label><label>SHA-256 <input type="text" id="amSha" placeholder="optional" spellcheck="false"></label><button class="btn primary" id="amUrlGo">Download</button></div>
+      </div>
+    </div>`, true);
+    const root = $("#modalBody .add-model");
+    root.querySelectorAll(".am-tabs .chip").forEach((c) => c.onclick = () => { root.querySelectorAll(".am-tabs .chip").forEach((x) => x.classList.toggle("active", x === c)); root.querySelectorAll(".am-pane").forEach((p) => p.hidden = p.dataset.pane !== c.dataset.tab); });
+    const start = async (name, source) => {
+      const r = await api("/api/models/download", { method: "POST", body: { tool: s.tool, kind: k.id, name, source } });
+      S.models.downloads[r.download.id] = r.download; renderDownloads(); renderModels(); closeModal();
+      toast(`Downloading ${r.download.name}`, "ok", "See the Downloads panel on the Models page.");
+    };
+    // HuggingFace
+    let hf = null;
+    const lookup = async () => {
+      const repo = $("#amRepo").value.trim(); if (!repo.includes("/")) { toast("Enter owner/repository", "warn"); return; }
+      $("#amHfInfo").innerHTML = `<span class="spinner"></span> looking up…`;
+      try {
+        hf = await api(`/api/models/hf?repo=${encodeURIComponent(repo)}`);
+        const files = folder ? "" : `<label>File <select id="amHfFile">${hf.single_files.map((f) => `<option value="${esc(f.path)}">${esc(f.path)} (${fmtBytes(f.size)})</option>`).join("")}</select></label>`;
+        $("#amHfInfo").innerHTML = `<div class="am-found"><b>${esc(hf.repo)}</b> · ${hf.files} files · ${esc(hf.size_h)}${hf.gated ? ` · <span class="pill warn">gated - needs your HF token</span>` : ""}${hf.pipeline ? ` · ${esc(hf.pipeline)}` : ""}${files}${!folder && !hf.single_files.length ? `<div class="note warn">No single weight file in this repository.</div>` : ""}</div>`;
+        if (!$("#amName").value) $("#amName").value = folder ? repo.split("/").pop() : (hf.single_files[0] ? hf.single_files[0].path.split("/").pop() : "");
+        if (!folder) { const sel = $("#amHfFile"); if (sel) sel.onchange = () => { $("#amName").value = sel.value.split("/").pop(); }; }
+        $("#amHfGo").disabled = !(folder || hf.single_files.length);
+      } catch (e) { $("#amHfInfo").innerHTML = `<div class="note danger">${esc(e.message)}</div>`; }
+    };
+    $("#amLookup").onclick = lookup; $("#amRepo").onkeydown = (e) => { if (e.key === "Enter") lookup(); };
+    $("#amHfGo").onclick = async () => {
+      if (!hf) return;
+      const name = $("#amName").value.trim() || hf.repo.split("/").pop();
+      try {
+        if (folder) await start(name, { type: "hf", repo: hf.repo });
+        else await start(name, { type: "hf_file", repo: hf.repo, path: $("#amHfFile").value });
+      } catch (e) { toast(e.message, "error"); }
+    };
+    // Civitai
+    const civ = async () => {
+      const inp = $("#amCiv"); const q = inp.value.trim(); if (!q) return;
+      $("#amCivList").innerHTML = `<span class="spinner"></span> searching…`;
+      try {
+        const r = await api(`/api/models/civitai?q=${encodeURIComponent(q)}&types=${encodeURIComponent(inp.dataset.types || "")}&base=${encodeURIComponent(inp.dataset.base || "")}`);
+        if (!r.items.length) { $("#amCivList").innerHTML = `<div class="empty small">Nothing found.</div>`; return; }
+        $("#amCivList").innerHTML = r.items.map((m, i) => `<div class="mrow"><div class="mrow-main"><b>${esc(m.name)}</b><small>${esc([m.version, m.base_model, m.type, m.creator ? "by " + m.creator : "", m.downloads ? m.downloads.toLocaleString() + " downloads" : "", m.nsfw ? "NSFW" : ""].filter(Boolean).join(" · "))}</small><small class="mono">${esc(m.file || "")}</small></div><div class="mrow-meta">${esc(m.size_h)}</div><div class="mrow-actions"><a class="btn small ghost" href="${esc(m.page)}" target="_blank" rel="noopener">Page</a><button class="btn small primary" data-civ="${i}">Download</button></div></div>`).join("");
+        $("#amCivList").querySelectorAll("[data-civ]").forEach((btn) => btn.onclick = async () => {
+          const m = r.items[+btn.dataset.civ];
+          try { btn.disabled = true; await start(m.file || m.name, { type: "civitai", url: m.url, sha256: m.sha256, size: m.size, page: m.page }); } catch (e) { toast(e.message, "error"); btn.disabled = false; }
+        });
+      } catch (e) { $("#amCivList").innerHTML = `<div class="note danger">${esc(e.message)}</div>`; }
+    };
+    $("#amCivGo").onclick = civ; $("#amCiv").onkeydown = (e) => { if (e.key === "Enter") civ(); };
+    // URL
+    $("#amUrlGo").onclick = async () => {
+      const url = $("#amUrl").value.trim(); if (!/^https?:\/\//.test(url)) { toast("Enter a full http(s) link", "warn"); return; }
+      let name = $("#amUrlName").value.trim();
+      if (!name) { try { name = decodeURIComponent(new URL(url).pathname.split("/").pop() || ""); } catch (e) { name = ""; } }
+      if (!name) { toast("Give the file a name", "warn"); return; }
+      try { await start(name, { type: "url", url, sha256: $("#amSha").value.trim() }); } catch (e) { toast(e.message, "error"); }
+    };
+    setTimeout(() => { const first = root.querySelector(".am-pane:not([hidden]) input"); if (first) first.focus(); }, 50);
+  }
+
+  // ---- downloads panel (SSE "download" events)
+  function onDownload(d) {
+    const prev = S.models.downloads[d.id];
+    S.models.downloads[d.id] = d;
+    if (prev && isActiveDl(prev) && !isActiveDl(d)) {
+      toast(d.status === "done" ? `${d.name} is ready` : d.status === "cancelled" ? `${d.name} cancelled` : `${d.name} failed`, d.status === "done" ? "ok" : d.status === "cancelled" ? "warn" : "error", d.message || "", d.status === "error" ? 12000 : 6000);
+      if (S.view === "models") loadModels(true);
+    } else if (!prev && S.view === "models") renderModels();
+    if (S.view === "models") renderDownloads();
+  }
+
+  function renderDownloads() {
+    const list = Object.values(S.models.downloads).sort((a, b) => (b.started || 0) - (a.started || 0));
+    const panel = $("#dlPanel");
+    panel.hidden = !list.length;
+    if (!list.length) return;
+    $("#dlList").innerHTML = list.map((d) => {
+      const active = isActiveDl(d);
+      const pct = d.percent != null ? d.percent : null;
+      const meta = active ? [d.status === "verifying" ? "verifying checksum" : `${fmtBytes(d.bytes)}${d.total ? " / " + fmtBytes(d.total) : ""}`, d.speed ? fmtBytes(d.speed) + "/s" : "", d.eta != null ? fmtEta(d.eta) : ""].filter(Boolean).join(" · ") : d.message;
+      return `<div class="job dl ${d.status}">
+        <div class="dl-head"><span class="pill" style="--tool:${TOOL_COLORS[d.tool] || "var(--muted)"}">${esc(nameOf(d.tool))}</span><div class="job-title" title="${esc(d.dest)}">${esc(d.name)}</div>${active ? `<button class="btn small ghost" data-cancel="${d.id}">Cancel</button>` : `<span class="pill ${d.status === "done" ? "ready" : d.status === "error" ? "error" : "warn"}">${d.status}</span>`}</div>
+        ${active ? `<div class="progress ${pct == null ? "indeterminate" : ""}"><i style="width:${pct == null ? 40 : pct}%"></i></div>` : ""}
+        <div class="job-meta"><span>${esc(meta || "")}</span>${active && pct != null ? `<span>${pct}%</span>` : ""}</div>
+      </div>`;
+    }).join("");
+  }
+
   // ------------------------------------------------------------------ modal / drawer
   function openModal(html, narrow = false) {
     $("#modalBody").innerHTML = html;
@@ -660,8 +918,8 @@
     S.es = es;
     es.onopen = () => { S.focusSent = undefined; sendFocus(S.view === "tool" ? S.tool : null); };
     es.addEventListener("state", (e) => { S.connected = true; onState(JSON.parse(e.data)); });
-    for (const type of ["log", "tool", "claim", "waiting", "summary", "settings"]) {
-      es.addEventListener(type, (e) => { const ev = JSON.parse(e.data); if (type === "settings") { if (S.state) S.state.settings = ev.settings; return; } onEvent({ type, ...ev }); });
+    for (const type of ["log", "tool", "claim", "waiting", "summary", "settings", "download"]) {
+      es.addEventListener(type, (e) => { const ev = JSON.parse(e.data); if (type === "settings") { if (S.state) S.state.settings = ev.settings; return; } if (type === "download") { onDownload(ev); return; } onEvent({ type, ...ev }); });
     }
     es.onerror = () => { S.connected = false; $("#conn").classList.add("off"); es.close(); setTimeout(connect, 2500); };
   }
@@ -686,6 +944,11 @@
     $("#libChips").addEventListener("click", (e) => { const c = e.target.closest(".chip"); if (!c) return; $$("#libChips .chip").forEach((x) => x.classList.toggle("active", x === c)); S.lib.tool = c.dataset.tool; loadLibrary(true); });
     $("#libSearch").addEventListener("input", (e) => { clearTimeout(S.libTimer); S.libTimer = setTimeout(() => { S.lib.q = e.target.value.trim(); loadLibrary(true); }, 300); });
     $("#libMore").onclick = () => loadLibrary(false);
+    $("#modelChips").addEventListener("click", (e) => { const c = e.target.closest(".chip"); if (!c) return; $$("#modelChips .chip").forEach((x) => x.classList.toggle("active", x === c)); S.models.tool = c.dataset.tool; renderModels(); });
+    $("#modelRefresh").onclick = () => loadModels(true);
+    $("#dlClear").onclick = async () => { await api("/api/models/downloads/clear", { method: "POST", body: {} }).catch(() => {}); Object.keys(S.models.downloads).forEach((k) => { if (!isActiveDl(S.models.downloads[k])) delete S.models.downloads[k]; }); renderDownloads(); };
+    $("#modelsGrid").addEventListener("click", onModelAction);
+    $("#dlList").addEventListener("click", (e) => { const b = e.target.closest("[data-cancel]"); if (b) api(`/api/models/downloads/${b.dataset.cancel}/cancel`, { method: "POST", body: {} }).catch((err) => toast(err.message, "error")); });
     document.addEventListener("click", (e) => {
       const card = e.target.closest(".media-card"); if (!card) return;
       const it = [...S.lib.items, ...(S.recentItems || [])].find((x) => x.id === card.dataset.id);
@@ -694,7 +957,7 @@
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") { closeModal(); toggleDrawer(false); closeMenu(); return; }
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
-      const map = { h: "#/home", l: "#/library" };
+      const map = { h: "#/home", l: "#/library", m: "#/models" };
       if (S.state) S.state.order.forEach((id, i) => { map[String(i + 1)] = `#/tool/${id}`; });
       const k = e.key.toLowerCase();
       if (map[k]) { location.hash = map[k]; e.preventDefault(); }

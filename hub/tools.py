@@ -199,6 +199,11 @@ class ToolSpec:
     # "Send to" targets: what this studio can take from another one. Each slot is delivered to the
     # studio's page through the hub bridge (window.hubImport) - see docs/handoff.md.
     import_slots: tuple[dict[str, Any], ...] = ()
+    # Models page (hub/models.py): where this studio keeps models, what the hub can download for it,
+    # and whether the studio has its own catalogue the hub delegates to instead.
+    model_kinds: tuple[dict[str, Any], ...] = ()
+    model_delegate = False
+    model_note = ""
 
     # ------------------------------------------------------------------ installation
     def python(self, tool_dir: Path) -> Path:
@@ -363,6 +368,20 @@ class ImageTool(ToolSpec):
     checkout_markers = ("server/main.py",)
     docker_service = "qwen-image"
     docker_port = 7864
+    model_kinds = (
+        {"id": "model", "label": "Models (diffusers folders)", "dir": "models", "layout": "folder", "marker": "model_index.json",
+         "use": True, "sources": ["hf"], "catalog": [
+             {"name": "Qwen-Image-2.1", "label": "Qwen-Image-2.1", "detail": "Text to image + editing, the main model", "size_h": "~33 GB",
+              "source": {"type": "hf", "repo": "Qwen/Qwen-Image-2.1"}},
+             {"name": "Qwen-Image-2.1-PE-T2I", "label": "Prompt enhancer (text to image)", "detail": "Powers the Enhance button for text-to-image", "size_h": "~19 GB",
+              "source": {"type": "hf", "repo": "Qwen/Qwen-Image-2.1-PE-T2I"}},
+             {"name": "Qwen-Image-2.1-PE-I2I", "label": "Prompt enhancer (editing)", "detail": "Powers the Enhance button when editing", "size_h": "~19 GB",
+              "source": {"type": "hf", "repo": "Qwen/Qwen-Image-2.1-PE-I2I"}}]},
+        {"id": "lora", "label": "LoRAs", "dir": "loras", "layout": "file", "exts": [".safetensors"], "sources": ["civitai", "url", "hf_file"],
+         "civitai": {"types": "LORA", "base": "Qwen"}},
+    )
+    model_note = "Any Qwen-Image diffusers checkpoint works as a model folder; a different architecture needs a code update."
+
     import_slots = (
         {'id': 'edit', 'label': 'Edit & Combine - as a reference image', 'kinds': ['image']},
         {'id': 'local', 'label': 'Local edit - as the image to edit', 'kinds': ['image']},
@@ -486,6 +505,9 @@ class TtsTool(ToolSpec):
     docker_service = "qwen-tts"
     docker_port = 7861
     docker_extra_services = ("chatterbox",)
+    model_delegate = True
+    model_note = "Voice Studio downloads its models from HuggingFace into its own cache when they are loaded."
+
     import_slots = (
         {'id': 'clone', 'label': 'Voice clone - as the reference voice', 'kinds': ['audio']},
         {'id': 'sts', 'label': 'Speech to speech - as the source', 'kinds': ['audio']},
@@ -611,6 +633,9 @@ class VideoTool(ToolSpec):
     checkout_markers = ("backend/run.py",)
     docker_service = "video"
     docker_port = 8765
+    model_delegate = True
+    model_note = "Video Studio has its own model packs with resumable downloads; the hub shows and drives them."
+
     import_slots = (
         {'id': 'i2v', 'label': 'Image to video - as the start frame', 'kinds': ['image']},
         {'id': 'flf_start', 'label': 'First + last frame - as the first frame', 'kinds': ['image']},
@@ -740,6 +765,21 @@ class MusicTool(ToolSpec):
     docker_service = "yue2"
     docker_port = 7863
     supports_unload = False
+    model_kinds = (
+        {"id": "model", "label": "Models", "dir": "models", "layout": "folder", "use": False, "sources": ["hf"], "catalog": [
+            {"name": "YuE2-3B", "label": "YuE2-3B", "detail": "The song model (the only one the studio loads)", "size_h": "~6.8 GB",
+             "source": {"type": "hf", "repo": "m-a-p/YuE2-3B", "allow_patterns": ["*.json", "*.txt", "*.py", "*.safetensors", "*.model", "*.tiktoken", "licenses/*"]}},
+            {"name": "YuE2-Vae", "label": "YuE2 VAE", "detail": "Audio decoder", "size_h": "~0.5 GB",
+             "source": {"type": "hf", "repo": "m-a-p/YuE2-Vae", "allow_patterns": ["*.json", "*.txt", "*.py", "*.safetensors", "licenses/*"]}},
+            {"name": "YuE2-Vae-legacy", "label": "YuE2 VAE (legacy)", "detail": "The decoder used for the published benchmarks", "size_h": "~0.5 GB",
+             "source": {"type": "hf", "repo": "m-a-p/YuE2-Vae-legacy", "allow_patterns": ["*.json", "*.txt", "*.py", "*.safetensors", "licenses/*"]}},
+            {"name": "SheetSage2", "label": "SheetSage2", "detail": "Transcribes a recording for the cover feature", "size_h": "~0.2 GB",
+             "source": {"type": "hf", "repo": "m-a-p/SheetSage2", "allow_patterns": ["*.py", "*.json", "*.txt", "*.safetensors"]}},
+            {"name": "MERT-v2-FullSong", "label": "MERT-v2-FullSong", "detail": "Audio encoder for SheetSage2", "size_h": "~2.4 GB",
+             "source": {"type": "hf", "repo": "m-a-p/MERT-v2-FullSong", "allow_patterns": ["*.py", "*.json", "*.safetensors"]}}]},
+    )
+    model_note = "Music Studio always loads models/YuE2-3B; keep the folder names as listed."
+
     import_slots = (
         {'id': 'voice', 'label': 'Sing it in this voice - as the voice reference', 'kinds': ['audio']},
         {'id': 'cover', 'label': 'Cover this recording', 'kinds': ['audio']},
@@ -828,6 +868,20 @@ class ForgeTool(ToolSpec):
     docker_service = "forge"
     docker_port = 7860
     idle_context_mb = 500
+    model_kinds = (
+        {"id": "checkpoint", "label": "Checkpoints", "dir": "models/Stable-diffusion", "layout": "file", "exts": [".safetensors", ".ckpt", ".gguf"],
+         "use": True, "sources": ["civitai", "url", "hf_file"], "civitai": {"types": "Checkpoint", "base": ""}},
+        {"id": "lora", "label": "LoRAs", "dir": "models/Lora", "layout": "file", "exts": [".safetensors", ".pt"], "recursive": True,
+         "sources": ["civitai", "url", "hf_file"], "civitai": {"types": "LORA", "base": ""}},
+        {"id": "vae", "label": "VAEs", "dir": "models/VAE", "layout": "file", "exts": [".safetensors", ".pt", ".ckpt"],
+         "sources": ["civitai", "url", "hf_file"], "civitai": {"types": "VAE", "base": ""}},
+        {"id": "controlnet", "label": "ControlNet", "dir": "models/ControlNet", "layout": "file", "exts": [".safetensors", ".pth", ".bin"],
+         "sources": ["civitai", "url", "hf_file"], "civitai": {"types": "Controlnet", "base": ""}},
+        {"id": "upscaler", "label": "Upscalers", "dir": "models/ESRGAN", "layout": "file", "exts": [".pth", ".safetensors"],
+         "sources": ["url", "hf_file"]},
+    )
+    model_note = "Checkpoints, LoRAs, VAEs and ControlNets go in Forge's models folders; Civitai search is built in."
+
     import_slots = (
         {'id': 'edit', 'label': 'Studio - Edit this image', 'kinds': ['image']},
         {'id': 'img2img', 'label': 'Classic - img2img source', 'kinds': ['image']},
