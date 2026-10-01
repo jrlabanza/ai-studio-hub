@@ -21,7 +21,8 @@ Each studio's initialiser (Windows `Initialize.bat` / `setup.ps1` / `initialize.
 | `gfx` | AMD only: the LLVM target (`gfx1201`, `gfx1100`, `gfx1030`, …), `""` when unknown |
 | `torch` | the build the initialiser installed (as `torch.__version__` reports it) |
 
-Launchers (`webui-user.bat`, `Run.bat`, `start.bat`, `linux/entrypoint.sh`) and the apps read this file;
+Launchers (`webui-user.bat`, `Run.bat`, `start.bat`, `linux/entrypoint.sh`) and the apps read this file (batch
+files read a sibling `.gpu.cmd` with `set "AI_GPU_VENDOR=…"` / `AI_GPU_BACKEND` / `AI_GPU_GFX` lines instead);
 when it is missing they fall back to runtime detection (`torch.version.hip` / `torch.version.cuda`).
 
 Detection order:
@@ -43,7 +44,7 @@ A `--gpu nvidia|amd|cpu` (or `-Gpu`) switch on every initialiser overrides the d
 |---|---|
 | NVIDIA, Windows + Linux | `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/<cu130\|cu126>` (unchanged) |
 | AMD, **Windows** (native ROCm, public preview) | `pip install --index-url https://repo.amd.com/rocm/whl-multi-arch/ "torch[device-<gfx>]==2.12.0+rocm7.14.1" "torchvision[device-<gfx>]==0.27.0+rocm7.14.1" "torchaudio==2.11.0+rocm7.14.1"` - Python 3.11-3.14, AMD Software Adrenalin 26.x. `device-all` works for any supported card (bigger download). |
-| AMD, Linux | `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm7.1` inside a `rocm/dev-ubuntu-24.04` based image; the container gets `/dev/kfd` and `/dev/dri` and the `video`/`render` groups instead of the NVIDIA runtime (`linux/compose.rocm.yml`). |
+| AMD, Linux | **not built yet.** The Linux containers are CUDA images; `linux/initialize.sh` detects an AMD card and says so. The planned shape: a `rocm/dev-ubuntu-24.04` based image with torch from `https://download.pytorch.org/whl/rocm7.1`, the container given `/dev/kfd` + `/dev/dri` and the `video`/`render` groups instead of the NVIDIA runtime. |
 | CPU | `--index-url https://download.pytorch.org/whl/cpu` |
 
 Pinned torch versions per studio stay as they are for NVIDIA; for AMD on Windows the torch version is
@@ -78,7 +79,7 @@ code is untouched. These are the CUDA-only extras and their AMD behaviour:
 | Voice Studio | none in the app; Chatterbox helper | same wheels for the Chatterbox venv; `attn_implementation="sdpa"` |
 | Video Studio | nvidia-smi in `hardware.py`; engine flags `--fast fp16_accumulation`; model packs | engine started with `--disable-pinned-memory` (no `--fast`), stats from `torch.cuda`; INT8/GGUF packs load on ROCm, FP8 packs only on RDNA 4 |
 | Music Studio | CUDA-graph decoder, `fp8` quantisation | `--quantization none`, eager decoder; the 8 GB "low VRAM" swap through RAM works unchanged |
-| Forge | `--cuda-malloc`, `--cuda-stream`, `--pin-shared-memory`, SageAttention wheel, xformers | none of those flags; `--attention-pytorch`; no SageAttention; Forge's own `torch.version.hip` branch handles the rest |
+| Forge | `--cuda-malloc`, `--cuda-stream`, `--pin-shared-memory`, SageAttention wheel, xformers | none of those flags; `--use-pytorch-cross-attention` (Forge's SDPA switch); no SageAttention; Forge's own `torch.version.hip` branch handles the rest |
 
 Not available on Windows ROCm at all: Triton, xformers, flash-attn, SageAttention, bitsandbytes,
 CUDA graphs. The initialisers skip those wheels with a one-line note.

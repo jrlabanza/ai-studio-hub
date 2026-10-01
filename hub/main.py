@@ -291,6 +291,13 @@ def create_app(hub: Hub) -> FastAPI:
             checks.append({"name": f"{t.spec.name} environment", "ok": inst, "detail": why or where})
             if inst:
                 checks.append({"name": f"{t.spec.name} models", "ok": model_ok, "detail": model_why or "present"})
+                prof = t.spec.gpu_profile(tdir)
+                if prof:
+                    mismatch = bool(g.available and g.vendor and prof.get("vendor") not in (g.vendor, "cpu"))
+                    checks.append({"name": f"{t.spec.name} GPU setup", "ok": not mismatch,
+                                   "detail": f"set up for {str(prof.get('vendor', '?')).upper()} ({prof.get('backend', '?')}"
+                                             f"{', ' + prof['gfx'] if prof.get('gfx') else ''}) · torch {prof.get('torch', '?')}"
+                                             + (" - this PC has a different card: re-run the studio's initialiser" if mismatch else "")})
         from .tools import TOOLS
 
         for tid in hub.absent:

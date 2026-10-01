@@ -832,7 +832,7 @@ class ForgeTool(ToolSpec):
         if self.gpu_profile(tool_dir).get("backend", "cuda") == "cuda":
             argv += ["--pin-shared-memory", "--cuda-malloc", "--cuda-stream"]      # CUDA allocator / stream tricks
         else:
-            argv += ["--attention-pytorch"]                                        # ROCm: no SageAttention / xformers
+            argv += ["--use-pytorch-cross-attention"]                              # ROCm: SDPA, no SageAttention / xformers
         if (tool_dir / "tools" / ".portable").is_file():
             argv.append("--skip-install")
         return argv
