@@ -63,6 +63,8 @@ window.hubImport = async function (detail) {
 | | `dub` | video, audio | Dubbing, as the video (or audio) |
 | Video Studio | `i2v` | image | Image to video, start frame |
 | | `flf_start` / `flf_end` | image | First + last frame |
+| | `swap_video` | video | Character swap, the clip to change (MiniMax H3) |
+| | `swap_character` | image | Character swap, the new character |
 | Music Studio | `voice` | audio | Sing it in this voice, the voice reference |
 | | `cover` | audio | Cover this recording |
 | Forge Studio | `edit` | image | Studio app, Edit this image |

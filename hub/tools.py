@@ -640,6 +640,8 @@ class VideoTool(ToolSpec):
         {'id': 'i2v', 'label': 'Image to video - as the start frame', 'kinds': ['image']},
         {'id': 'flf_start', 'label': 'First + last frame - as the first frame', 'kinds': ['image']},
         {'id': 'flf_end', 'label': 'First + last frame - as the last frame', 'kinds': ['image']},
+        {'id': 'swap_video', 'label': 'Character swap - as the video to change', 'kinds': ['video']},
+        {'id': 'swap_character', 'label': 'Character swap - as the new character', 'kinds': ['image']},
     )
 
     def models_dir(self, tool_dir: Path) -> Path:
