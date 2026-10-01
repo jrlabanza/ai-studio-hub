@@ -79,7 +79,7 @@ layout used with [jrlabanza/ai-launcher](https://github.com/jrlabanza/ai-launche
   forge/                Forge Studio      (ai/forge)
 ```
 
-1. Set the studios up once with their own `linux/initialize.sh` (driver, Docker + NVIDIA Container Toolkit, image,
+1. Set the studios up once with their own `linux/initialize.sh` (driver check, Docker with the NVIDIA toolkit or the AMD device groups, the CUDA or ROCm image,
    models) — or `ai init <tool>` with the AI Launcher.
 2. Run **`./Initialize AI Studio Hub.sh`** once (the same as `linux/initialize.sh`): it creates the hub's `.venv`, lists
    which studios it found and adds an app-menu entry, **AI – Studio Hub**.
@@ -110,7 +110,7 @@ How the container path differs from the tools' own `run.sh`:
 | | NVIDIA | AMD |
 |---|---|---|
 | Windows | tested (CUDA 12.6 / 13) | implemented through AMD's native PyTorch-on-ROCm wheels (ROCm 7.14, Radeon RX 7000 / RX 9000, RX 6800 and up, Ryzen AI APUs) - **awaiting verification on AMD hardware** |
-| Linux | tested (Docker, CUDA) | the containers are CUDA builds for now; see [docs/gpu.md](docs/gpu.md) |
+| Linux | tested (Docker, CUDA) | implemented: every studio has a second, ROCm container (`ai/<tool>:rocm`, built from `linux/Dockerfile.rocm` with the official PyTorch ROCm wheels) that the launcher and the hub pick automatically on an AMD box - **awaiting verification on AMD hardware** |
 
 Every studio's initialiser detects the card once, installs the matching PyTorch build and writes what it
 chose to `.gpu.json`; launchers and the apps read that file to switch off the features that only exist for
@@ -211,7 +211,7 @@ data\               settings.json, logs\<tool>.log, thumbs\, hub.pid   (created 
 ```
 
 Requires Python 3.10+ and an NVIDIA GPU (driver with `nvidia-smi`) or an AMD Radeon GPU (see GPU support above). Windows 10/11 needs the `py`
-launcher; Linux needs Docker with the NVIDIA Container Toolkit (any studio's `linux/initialize.sh` installs them) and
+launcher; Linux needs Docker plus the NVIDIA Container Toolkit (NVIDIA) or the `video`/`render` groups (AMD) - any studio's `linux/initialize.sh` sets this up - and
 `python3-venv`.
 
 ## License
