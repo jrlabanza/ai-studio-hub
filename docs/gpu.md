@@ -82,14 +82,14 @@ Every studio keeps its CUDA image and gains a ROCm one. Same layout, same bind m
 | GPU access | `runtime: nvidia`, `NVIDIA_*` env | `devices: [/dev/kfd, /dev/dri]`, `group_add: ["${AI_VIDEO_GID}", "${AI_RENDER_GID}"]`, `security_opt: [seccomp=unconfined]`, `HSA_OVERRIDE_GFX_VERSION` passed through from `linux/.env` |
 | torch | the studio's CUDA pin | the official PyTorch ROCm wheel closest to that pin (table below), from `https://download.pytorch.org/whl/<rocm tag>` |
 
-PyTorch ROCm wheels available (October 2026): `rocm7.1` → torch 2.13.0 (py3.10–3.14), `rocm7.0` → 2.10.0,
-`rocm6.4` → 2.9.1, `rocm7.2` → 2.14.1. Chosen per studio:
+PyTorch ROCm wheels available (October 2026): `rocm7.1` → torch 2.11.0 and 2.13.0 (py3.10–3.14), `rocm7.0` → 2.10.0,
+`rocm6.4` → 2.9.1, `rocm7.2` → 2.14.1. Chosen per studio (as built and verified here):
 
 | studio | CUDA pin | ROCm image installs |
 |---|---|---|
 | Image Studio | torch 2.13.0 / py3.12 | `torch==2.13.0 torchvision==0.28.0` from `rocm7.1` |
-| Voice Studio | torch 2.11.0 / py3.11 | `torch==2.13.0 torchaudio==2.13.0` from `rocm7.1` (no 2.11 ROCm build; Chatterbox helper: `rocm7.0` torch 2.10.0 or skipped if its pins cannot be met - say so) |
-| Video Studio | torch 2.13.0 / py3.12 | `torch==2.13.0 torchvision==0.28.0 torchaudio==2.13.0` from `rocm7.1` |
+| Voice Studio | torch 2.11.0 / py3.11 | `torch==2.11.0 torchaudio==2.11.0` from `rocm7.1` (exact pin); the Chatterbox helper, whose package pins torch 2.6, runs on `torch==2.9.1` from `rocm6.4` with its own pins kept |
+| Video Studio | torch 2.13.0 / py3.12 | `torch==2.13.0 torchvision==0.28.0 torchaudio==2.11.0` from `rocm7.1` (the index carries torchaudio 2.10/2.11 only, same as the CUDA lock) |
 | Music Studio | torch 2.10.0 / py3.12 | `torch==2.10.0` from `rocm7.0` |
 | Forge | torch 2.10.0 / py3.13 | `torch==2.10.0 torchvision==0.25.0` from `rocm7.0` |
 
