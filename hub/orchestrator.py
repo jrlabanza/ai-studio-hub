@@ -486,6 +486,10 @@ class Orchestrator:
             summ = self.summary(t.id)
             if summ.busy or self._lock.locked():
                 continue
+            if getattr(summ, "keep_alive", False):
+                # downloading models (or similar GPU-free work): it is not idle, keep the timer fresh
+                self.last_activity[t.id] = now
+                continue
             # A restart counts as activity: never judge a studio by what it did before it was last stopped.
             last = max(self.last_activity.get(t.id, 0.0), t.started_at) or now
             idle_min = (now - last) / 60

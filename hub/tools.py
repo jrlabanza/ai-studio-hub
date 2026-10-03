@@ -147,10 +147,12 @@ class Summary:
     model: str = ""                 # model name if known
     job: dict[str, Any] | None = None   # {"title", "percent", "eta", "message", "kind"}
     gpu_used_mb: int | None = None
+    keep_alive: bool = False        # working without the GPU (e.g. downloading models): never stop it for idling
 
     def to_dict(self) -> dict[str, Any]:
         return {"state": self.state, "loaded": self.loaded, "busy": self.busy, "label": self.label,
-                "detail": self.detail, "model": self.model, "job": self.job, "gpu_used_mb": self.gpu_used_mb}
+                "detail": self.detail, "model": self.model, "job": self.job, "gpu_used_mb": self.gpu_used_mb,
+                "keep_alive": self.keep_alive}
 
 
 def _short_model(model_id: str | None) -> str:
@@ -693,7 +695,10 @@ class VideoTool(ToolSpec):
 
     @staticmethod
     def _active_downloads(downloads: Any) -> int:
-        items = downloads.values() if isinstance(downloads, dict) else downloads if isinstance(downloads, list) else []
+        if isinstance(downloads, dict) and isinstance(downloads.get("items"), list):
+            items = downloads["items"]          # Video Studio: {"items": [...], "active": bool}
+        else:
+            items = downloads.values() if isinstance(downloads, dict) else downloads if isinstance(downloads, list) else []
         n = 0
         for it in items:
             if isinstance(it, dict) and str(it.get("status", "")).lower() in ("downloading", "queued", "running", "active"):
@@ -729,7 +734,7 @@ class VideoTool(ToolSpec):
         return Summary(state="busy" if busy else ("ready" if st == "running" else ("loading" if st == "starting" else
                                                                                  ("error" if st == "error" else "unloaded"))),
                        loaded=loaded, busy=busy, label=label, detail=detail, model="LTX-2.5 / MiniMax H3", job=job,
-                       gpu_used_mb=gpu.get("vram_used_mb"))
+                       gpu_used_mb=gpu.get("vram_used_mb"), keep_alive=bool(dl))
 
     def unload_steps(self, base: str, cfg: dict[str, Any], tool_dir: Path) -> list[Step]:
         return [Step("POST", f"{base}/api/engine/unload", timeout=60, label="free ComfyUI models"),
