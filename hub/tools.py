@@ -644,6 +644,14 @@ class VideoTool(ToolSpec):
         {'id': 'flf_end', 'label': 'First + last frame - as the last frame', 'kinds': ['image']},
         {'id': 'swap_video', 'label': 'Character swap - as the video to change', 'kinds': ['video']},
         {'id': 'swap_character', 'label': 'Character swap - as the new character', 'kinds': ['image']},
+        {'id': 'soundtrack', 'label': 'Soundtrack - the video is generated to it', 'kinds': ['audio']},
+        {'id': 'voice', 'label': 'Voice sample - the character speaks in this voice (MiniMax H3)', 'kinds': ['audio']},
+        {'id': 'reference', 'label': 'References - as a reference picture (MiniMax H3)', 'kinds': ['image']},
+        {'id': 'storyboard_cast', 'label': 'Storyboard - add to the cast (MiniMax H3)', 'kinds': ['image']},
+        {'id': 'keyframe_drawing', 'label': 'Keyframe animation - as the drawing to animate', 'kinds': ['image']},
+        {'id': 'extend_clip', 'label': 'Extend - continue this clip', 'kinds': ['video']},
+        {'id': 'edit_clip', 'label': 'Edit - change this clip with an instruction (MiniMax H3)', 'kinds': ['video']},
+        {'id': 'motion_clip', 'label': 'Motion transfer - follow the moves in this clip (MiniMax H3)', 'kinds': ['video']},
     )
 
     def models_dir(self, tool_dir: Path) -> Path:

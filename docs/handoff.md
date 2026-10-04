@@ -65,6 +65,12 @@ window.hubImport = async function (detail) {
 | | `flf_start` / `flf_end` | image | First + last frame |
 | | `swap_video` | video | Character swap, the clip to change (MiniMax H3) |
 | | `swap_character` | image | Character swap, the new character |
+| | `soundtrack` | audio | Soundtrack (Text / Image / Start + End / Storyboard) |
+| | `voice` | audio | Voice sample (References / Motion, MiniMax H3) |
+| | `reference` | image | References picture (also Keyframe extras / Edit / Motion) |
+| | `storyboard_cast` | image | Storyboard cast |
+| | `keyframe_drawing` | image | Keyframe animation, the drawing |
+| | `extend_clip` / `edit_clip` / `motion_clip` | video | Extend / Edit / Motion transfer, the clip |
 | Music Studio | `voice` | audio | Sing it in this voice, the voice reference |
 | | `cover` | audio | Cover this recording |
 | Forge Studio | `edit` | image | Studio app, Edit this image |
