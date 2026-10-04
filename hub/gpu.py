@@ -12,6 +12,7 @@ See docs/gpu.md.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import collections
 import json
 import os
@@ -98,7 +99,21 @@ def _smi(args: list[str], timeout: float = 4.0) -> str | None:
     return _run([_SMI, *args], timeout)
 
 
-def _query_nvidia(with_processes: bool) -> GpuInfo | None:
+def _query_nvidia(with_processes: bool, light: bool = False) -> GpuInfo | None:
+    if light:
+        # During a render: memory only. Every nvidia-smi call is an RPC into the GPU's GSP firmware, and on the
+        # 595 open driver a query under full load has crashed that firmware (Xid 120); ask as little as possible.
+        line = _smi(["--query-gpu=name,memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"])
+        if not line:
+            return None
+        parts = [p.strip() for p in line.splitlines()[0].split(",")]
+        try:
+            info = GpuInfo(available=True, name=parts[0], total_mb=int(_num(parts[1])), used_mb=int(_num(parts[2])),
+                           free_mb=int(_num(parts[3])))
+        except Exception:
+            info = GpuInfo(available=True, name=parts[0] if parts else "GPU")
+        info.vendor, info.backend, info.source = "nvidia", "cuda", "nvidia-smi"
+        return info
     line = _smi(["--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,"
                  "driver_version,compute_cap", "--format=csv,noheader,nounits"])
     if not line:
@@ -281,8 +296,8 @@ def _query_windows_counters(with_processes: bool) -> GpuInfo | None:
 
 
 # ---------------------------------------------------------------------------------- public
-def query_gpu(with_processes: bool = False) -> GpuInfo:
-    info = _query_nvidia(with_processes)
+def query_gpu(with_processes: bool = False, light: bool = False) -> GpuInfo:
+    info = _query_nvidia(with_processes and not light, light=light)
     if info:
         return info
     if not IS_WINDOWS:
@@ -334,8 +349,12 @@ def system_snapshot(gpu: GpuInfo | None = None) -> dict[str, Any]:
 class GpuMonitor:
     """Samples the card in the background so requests never pay for a subprocess call."""
 
+    BUSY_INTERVAL = 30.0                 # while a studio renders: sample rarely, memory only
+    BUSY_FLAG = Path(os.environ.get("AI_CACHE") or Path.home() / ".cache" / "ai-tools") / "gpu-busy"
+
     def __init__(self, interval: float = 2.0) -> None:
         self.interval = interval
+        self.busy = lambda: False        # set by the hub: is any studio rendering right now?
         self.latest: GpuInfo = GpuInfo(available=False)
         self.snapshot: dict[str, Any] = system_snapshot(self.latest)
         self.history: collections.deque[tuple[float, int, int]] = collections.deque(maxlen=90)  # (ts, used_mb, util)
@@ -352,17 +371,40 @@ class GpuMonitor:
         if self._task:
             self._task.cancel()
 
-    async def refresh(self, with_processes: bool = False) -> GpuInfo:
+    async def refresh(self, with_processes: bool = False, light: bool = False) -> GpuInfo:
         loop = asyncio.get_running_loop()
-        info = await loop.run_in_executor(None, query_gpu, with_processes)
+        info = await loop.run_in_executor(None, query_gpu, with_processes, light)
         self.latest = info
         self.snapshot = await loop.run_in_executor(None, system_snapshot, info)
         self.history.append((time.time(), info.used_mb, info.util))
         return info
 
+    def _flag(self, on: bool) -> None:
+        """A file other GPU pollers (the desktop launcher) check, so they too leave the card alone mid-render."""
+        try:
+            if on:
+                self.BUSY_FLAG.parent.mkdir(parents=True, exist_ok=True)
+                self.BUSY_FLAG.touch()
+            elif self.BUSY_FLAG.exists():
+                self.BUSY_FLAG.unlink()
+        except OSError:
+            pass
+
     async def _loop(self) -> None:
         while True:
             try:
+                busy = False
+                try:
+                    busy = bool(self.busy())
+                except Exception:
+                    pass
+                self._flag(busy)
+                if busy and self.latest.source == "nvidia-smi":
+                    await asyncio.sleep(self.BUSY_INTERVAL)
+                    if bool(self.busy()):
+                        self._flag(True)
+                        await self.refresh(light=True)
+                        continue
                 await asyncio.sleep(self.interval)
                 await self.refresh()
             except asyncio.CancelledError:

@@ -43,6 +43,7 @@ class Hub:
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
         self.bus.loop = asyncio.get_running_loop()
+        self.gpu.busy = lambda: any(self.orchestrator.summary(t).busy for t in self.tools)
         await self.gpu.start()
         await self.orchestrator.start()
         g = self.gpu.latest
