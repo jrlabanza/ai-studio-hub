@@ -131,6 +131,25 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
             return JSONResponse({"detail": "not found"}, status_code=404)
         return ranged_file(request, p)
 
+    @app.api_route("/__hub/call/{dst_tool}/{path:path}", methods=["GET", "POST"])
+    async def hub_call(dst_tool: str, path: str, request: Request) -> Response:
+        """Call another studio's API from this studio's page, same-origin (Video Studio asks Image Studio for a
+        new camera angle of a cast picture). It goes through the other studio's own entrance, so that studio is
+        started on demand and gets the GPU the usual way (its claim routes)."""
+        port = hub.proxy_ports.get(dst_tool)
+        if not port or dst_tool == tool.id:
+            return JSONResponse({"detail": f"unknown studio '{dst_tool}'"}, status_code=404)
+        url = f"http://127.0.0.1:{port}/{path}" + (f"?{request.url.query}" if request.url.query else "")
+        headers = {k: v for k, v in request.headers.items() if k.lower() in ("content-type", "accept")}
+        body = await request.body() if request.method == "POST" else None
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as c:
+                resp = await c.request(request.method, url, headers=headers, content=body)
+        except Exception as exc:  # noqa: BLE001
+            return JSONResponse({"detail": f"{dst_tool} is not answering: {exc}"}, status_code=502)
+        keep = {k: v for k, v in resp.headers.items() if k.lower() in ("content-type", "retry-after")}
+        return Response(resp.content, status_code=resp.status_code, headers=keep)
+
     @app.get("/__hub/brand/{path:path}")
     async def brand_asset(path: str) -> Response:
         p = _safe_child(BRAND_DIR, path)
