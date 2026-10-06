@@ -49,9 +49,12 @@
     $("#asStudios").innerHTML = Object.entries(st.studios).map(([id, s]) =>
       `<button class="chip filter ${id === A.studio ? "active" : ""}" data-id="${id}" ${s.ready ? "" : "disabled title='Coming in phase 2'"}>${esc(s.name)}${s.ready ? "" : " · soon"}</button>`).join("");
     $("#asStudios").querySelectorAll("button[data-id]").forEach((b) => b.onclick = () => { if (!b.disabled) { A.studio = b.dataset.id; renderStudios(); } });
-    $("#asText").placeholder = A.studio === "video"
-      ? "Describe the clip… or \"animate it\" to bring the last image to life (Enter to plan)"
-      : "Describe the image… (Enter to plan, Shift+Enter for a new line)";
+    $("#asText").placeholder = {
+      video: "Describe the clip… or \"animate it\" to bring the last image to life (Enter to plan)",
+      image: "Describe the image, a poster or a logo… or \"edit it: …\" to change the last image (Enter to plan)",
+      music: "Describe the song: what it is about, the genre, the language, the mood… (Enter to plan)",
+      tts: "What should be said, and by whom? e.g. a calm narrator reading \"…\" (Enter to plan)",
+    }[A.studio] || "Describe the image… (Enter to plan, Shift+Enter for a new line)";
     const dev = st.device === "auto" ? `Auto (now ${st.would_use === "gpu" ? "GPU" : "CPU"})` : st.device.toUpperCase();
     $("#asDevice").innerHTML = `<label title="Where the assistant's language model thinks. Auto: the GPU when it is free (an idle studio is unloaded first), the CPU while a studio is rendering. It is always unloaded before a render.">Planner: <select id="asDev">
       ${["auto", "gpu", "cpu"].map((d) => `<option value="${d}" ${d === st.device ? "selected" : ""}>${d === "auto" ? "Auto" : d.toUpperCase()}</option>`).join("")}</select></label>
@@ -82,9 +85,12 @@
       const d = await api("/api/assistant/plan", { studio: A.studio, message: text, session: A.session });
       A.session = d.session; A.plan = d.plan;
       const t = d.timing;
-      const what = d.plan.studio === "video"
-        ? `${esc(d.plan.engine_name)} · ${d.plan.mode === "i2v" ? "image to video" : "text to video"} · ${d.plan.seconds} s · ${esc(d.plan.aspect)}`
-        : `${esc(d.plan.checkpoint)} · ${d.plan.loras.length} LoRA${d.plan.loras.length === 1 ? "" : "s"}`;
+      const P = d.plan;
+      const what = P.studio === "video" ? `${esc(P.engine_name)} · ${P.mode === "i2v" ? "image to video" : "text to video"} · ${P.seconds} s · ${esc(P.aspect)}`
+        : P.studio === "image" ? `Qwen-Image · ${{ t2i: "text to image", edit: "edit", rgba: "transparent" }[P.mode]} · ${esc(P.aspect)} · ${P.count} image${P.count > 1 ? "s" : ""}`
+        : P.studio === "music" ? `YuE2 · "${esc(P.title)}"${P.instrumental ? " · instrumental" : ""}`
+        : P.studio === "tts" ? `Qwen3-TTS · ${P.cast.length} voice${P.cast.length > 1 ? "s" : ""} · ${P.lines.length} line${P.lines.length > 1 ? "s" : ""}`
+        : `${esc(P.checkpoint)} · ${P.loras.length} LoRA${P.loras.length === 1 ? "" : "s"}`;
       wait.innerHTML = `${esc(d.plan.summary || "Here is the plan.")}<div class="as-meta">${what} · planned in ${t.seconds}s on the ${t.device.toUpperCase()}${(t.freed || []).length ? ` (${esc(t.freed.join(", "))})` : ""}</div>` +
         (d.plan.notes || []).map((n) => `<div class="as-note">${esc(n)}</div>`).join("");
       renderPlan();
@@ -98,6 +104,9 @@
 
   function renderPlan() {
     if (A.plan && A.plan.studio === "video") return renderVideoPlan();
+    if (A.plan && A.plan.studio === "image") return renderImagePlan();
+    if (A.plan && A.plan.studio === "music") return renderMusicPlan();
+    if (A.plan && A.plan.studio === "tts") return renderVoicePlan();
     const p = A.plan; const box = $("#asPlan");
     if (!p) return;
     box.innerHTML = `
@@ -137,6 +146,88 @@
     $("#pGo").onclick = render;
   }
 
+  const opt = (list, cur) => list.map((x) => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("");
+  const goBtn = (label) => `<div class="as-actions"><button class="btn primary" id="pGo">${label}</button><span class="as-dim" id="pState"></span></div>`;
+
+  function renderImagePlan() {
+    const p = A.plan; const box = $("#asPlan");
+    const modeName = { t2i: "Text to image", edit: "Edit the image", rgba: "Transparent background" }[p.mode];
+    box.innerHTML = `
+      <div class="as-plan-head"><span class="eyebrow">Plan · Image Studio</span><span class="badge">${modeName}</span></div>
+      ${p.image ? `<div class="as-src"><img src="${esc(p.image.url)}" alt=""><div><b>Editing</b><div class="as-dim">${esc(p.image.label)}</div></div></div>` : ""}
+      <label class="as-f"><span>${p.mode === "edit" ? "Edit instruction" : "Prompt (Qwen-Image)"}</span><textarea id="iPrompt" rows="6">${esc(p.prompt)}</textarea></label>
+      <div class="as-grid">
+        ${p.mode === "edit" ? "" : `<label class="as-f"><span>Shape</span><select id="iAsp">${opt(p.aspects, p.aspect)}</select></label>
+        <label class="as-f"><span>Size</span><select id="iTier">${opt(p.tiers, p.tier)}</select></label>`}
+        <label class="as-f"><span>Images</span><input id="iN" type="number" min="1" max="4" value="${p.count}"></label>
+        <label class="as-f"><span>Steps</span><input id="iSteps" type="number" min="8" max="80" value="${p.steps}"></label>
+      </div>${goBtn("Generate image")}`;
+    $("#pGo").onclick = render;
+  }
+
+  function renderMusicPlan() {
+    const p = A.plan; const box = $("#asPlan");
+    box.innerHTML = `
+      <div class="as-plan-head"><span class="eyebrow">Plan · Music Studio</span><span class="badge">${p.instrumental ? "Instrumental" : "Song"}</span></div>
+      <label class="as-f"><span>Title</span><input id="mTitle" value="${esc(p.title)}"></label>
+      <label class="as-f"><span>Style</span><textarea id="mStyle" rows="2">${esc(p.style)}</textarea></label>
+      <label class="as-f"><span>Lyrics</span><textarea id="mLyrics" rows="14">${esc(p.lyrics)}</textarea></label>
+      <div class="as-grid"><label class="as-f"><span>Takes</span><input id="mTakes" type="number" min="1" max="4" value="${p.takes}"></label></div>
+      ${goBtn("Make the song")}<div class="as-dim">A song takes about 3 minutes per take.</div>`;
+    $("#pGo").onclick = render;
+  }
+
+  function renderVoicePlan() {
+    const p = A.plan; const box = $("#asPlan");
+    const voiceOpts = (c) => c.kind === "preset" ? p.speakers.map((sp) => `<option value="${sp.id}" ${sp.id === c.voice ? "selected" : ""}>${esc(sp.name)} - ${esc(sp.desc)}</option>`).join("")
+      : c.kind === "library" ? p.voices.map((v) => `<option value="${esc(v.id)}" ${v.id === c.voice ? "selected" : ""}>${esc(v.name)}</option>`).join("") : "";
+    box.innerHTML = `
+      <div class="as-plan-head"><span class="eyebrow">Plan · Voice Studio</span><span class="badge">${p.cast.length} voice${p.cast.length > 1 ? "s" : ""}</span></div>
+      <div class="as-f"><span>Cast</span>${p.cast.map((c, i) => `<div class="as-cast" data-i="${i}">
+        <b>${esc(c.name)}</b>
+        <select class="cKind">${["design", "preset", "library"].map((k) => `<option ${k === c.kind ? "selected" : ""} ${k === "library" && !p.voices.length ? "disabled" : ""}>${k}</option>`).join("")}</select>
+        ${c.kind === "design" ? `<input class="cDesc" value="${esc(c.description)}" placeholder="describe the voice">` : `<select class="cVoice">${voiceOpts(c)}</select>`}
+      </div>`).join("")}</div>
+      <label class="as-f"><span>Script (Name: line)</span><textarea id="tScript" rows="8">${esc(p.lines.map((l) => `${l.speaker}: ${l.text}`).join("\n"))}</textarea></label>
+      <div class="as-grid"><label class="as-f"><span>Language</span><select id="tLang">${opt(p.languages, p.language)}</select></label></div>
+      ${goBtn("Speak it")}`;
+    box.querySelectorAll(".cKind").forEach((sel) => sel.onchange = () => {
+      collectVoice(); const c = A.plan.cast[+sel.closest(".as-cast").dataset.i]; c.kind = sel.value;
+      if (c.kind === "preset") c.voice = c.voice && A.plan.speakers.some((x) => x.id === c.voice) ? c.voice : A.plan.speakers[0].id;
+      if (c.kind === "library") c.voice = (A.plan.voices[0] || {}).id || "";
+      if (c.kind === "design" && !c.description) c.description = "a clear, natural adult voice";
+      renderVoicePlan();
+    });
+    $("#pGo").onclick = render;
+  }
+
+  function collectImage() {
+    const p = A.plan;
+    p.prompt = $("#iPrompt").value.trim();
+    if ($("#iAsp")) { p.aspect = $("#iAsp").value; p.tier = $("#iTier").value; }
+    p.count = Math.max(1, Math.min(4, parseInt($("#iN").value, 10) || 1));
+    p.steps = Math.max(8, Math.min(80, parseInt($("#iSteps").value, 10) || p.steps));
+  }
+  function collectMusic() {
+    const p = A.plan;
+    p.title = $("#mTitle").value.trim() || p.title; p.style = $("#mStyle").value.trim(); p.lyrics = $("#mLyrics").value.trim();
+    p.takes = Math.max(1, Math.min(4, parseInt($("#mTakes").value, 10) || 1));
+  }
+  function collectVoice() {
+    const p = A.plan;
+    $("#asPlan").querySelectorAll(".as-cast").forEach((row) => {
+      const c = p.cast[+row.dataset.i]; c.kind = row.querySelector(".cKind").value;
+      if (row.querySelector(".cDesc")) c.description = row.querySelector(".cDesc").value.trim();
+      if (row.querySelector(".cVoice")) c.voice = row.querySelector(".cVoice").value;
+    });
+    const names = Object.fromEntries(p.cast.map((c) => [c.name.toLowerCase(), c.name]));
+    if ($("#tScript")) p.lines = $("#tScript").value.split("\n").map((ln) => {
+      const m = ln.match(/^\s*([^:]{1,40}):\s*(.+)$/);
+      return m ? { speaker: names[m[1].trim().toLowerCase()] || p.cast[0].name, text: m[2].trim() } : (ln.trim() ? { speaker: p.cast[0].name, text: ln.trim() } : null);
+    }).filter(Boolean);
+    if ($("#tLang")) p.language = $("#tLang").value;
+  }
+
   function collectVideo() {
     const p = A.plan;
     p.prompt = $("#vPrompt").value.trim();
@@ -146,6 +237,9 @@
 
   function collect() {
     if (A.plan && A.plan.studio === "video") return collectVideo();
+    if (A.plan && A.plan.studio === "image") return collectImage();
+    if (A.plan && A.plan.studio === "music") return collectMusic();
+    if (A.plan && A.plan.studio === "tts") return collectVoice();
     const p = A.plan; const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) ? v : d; };
     p.prompt_core = $("#pPrompt").value.trim();
     p.negative = $("#pNeg").value.trim();
@@ -159,12 +253,12 @@
   async function render() {
     if (A.busy) return;
     collect();
-    const studioName = A.plan.studio === "video" ? "Video Studio" : "Forge";
+    const studioName = { video: "Video Studio", image: "Image Studio", music: "Music Studio", tts: "Voice Studio" }[A.plan.studio] || "Forge";
     A.busy = true; $("#pGo").disabled = true; $("#pState").innerHTML = `<span class="spinner"></span> Rendering in ${studioName}…`;
     const t0 = Date.now();
     let stage = "";
     const tick = setInterval(async () => {
-      if (A.plan.studio === "video") {
+      if (A.plan.studio !== "forge") {
         const pr = await api(`/api/assistant/progress/${A.session}`).catch(() => ({}));
         if (pr.stage) stage = ` · ${pr.stage}${pr.progress ? ` ${Math.round(pr.progress * 100)}%` : ""}`;
       }
@@ -173,7 +267,11 @@
     try {
       const d = await api("/api/assistant/render", { session: A.session, plan: A.plan });
       const res = $("#asResults"); res.hidden = false;
-      if (d.videos) {
+      if (d.audios) {
+        res.insertAdjacentHTML("afterbegin", d.audios.map((u) => `<div class="as-vid"><audio src="${u}" controls preload="metadata"></audio><div class="as-dim">${esc(d.info || "")}</div></div>`).join(""));
+        $("#pState").textContent = `Done in ${d.seconds}s - it is in ${studioName} too.`;
+        addMsg("assistant", `Done in ${d.seconds}s - press play on the right.`);
+      } else if (d.videos) {
         res.insertAdjacentHTML("afterbegin", d.videos.map((u) => `<div class="as-vid"><video src="${u}" controls loop playsinline></video><div class="as-dim">${esc(d.info || "")}</div></div>`).join(""));
         $("#pState").textContent = `Done in ${d.seconds}s - it is in Video Studio's History too.`;
         addMsg("assistant", `Rendered the clip in ${d.seconds}s.`);

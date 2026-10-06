@@ -9,12 +9,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..config import load_settings, save_settings
-from . import forge, runtime, video
+from . import forge, image, music, runtime, video, voice
 
 SESSIONS: dict[str, dict] = {}
 STUDIOS = {"forge": {"name": "Forge", "ready": True},
-           "video": {"name": "Video Studio", "ready": True}, "image": {"name": "Image Studio", "ready": False},
-           "music": {"name": "Music Studio", "ready": False}, "tts": {"name": "Voice Studio", "ready": False}}
+           "video": {"name": "Video Studio", "ready": True}, "image": {"name": "Image Studio", "ready": True},
+           "music": {"name": "Music Studio", "ready": True}, "tts": {"name": "Voice Studio", "ready": True}}
 
 
 def _load(sid: str) -> dict | None:
@@ -48,7 +48,8 @@ def _last_image(s: dict) -> dict | None:
             path = forge.OUT_DIR / s["id"] / name
             if path.is_file():
                 plan = r.get("plan") or {}
-                return {"path": str(path), "url": url, "label": f"the {plan.get('checkpoint', 'Forge')} image from this conversation",
+                src = plan.get("checkpoint") or ("Image Studio (Qwen-Image)" if plan.get("studio") == "image" else "Forge")
+                return {"path": str(path), "url": url, "label": f"the {src} image from this conversation",
                         "description": plan.get("prompt_core", "")}
     return None
 
@@ -116,6 +117,12 @@ def register(app: FastAPI, hub) -> None:
             device, freed = await choose_device(body.get("device"))
             if studio == "video":
                 p, timing = await video.plan(port(studio), text, s["history"], prev, device, _last_image(s))
+            elif studio == "image":
+                p, timing = await image.plan(port(studio), text, s["history"], prev, device, _last_image(s))
+            elif studio == "music":
+                p, timing = await music.plan(port(studio), text, s["history"], prev, device)
+            elif studio == "tts":
+                p, timing = await voice.plan(port(studio), text, s["history"], prev, device)
             else:
                 p, timing = await forge.plan(port(studio), text, s["history"], prev, device)
             timing["freed"] = freed
@@ -124,12 +131,11 @@ def register(app: FastAPI, hub) -> None:
         except Exception as e:
             raise HTTPException(500, str(e))
         s["history"].append({"role": "user", "text": text})
-        s["history"].append({"role": "assistant", "text": p["summary"] or (f"{p['checkpoint']} with {len(p['loras'])} LoRA(s)"
-                                                                          if studio == "forge" else f"{p['engine_name']} {p['seconds']} s")})
+        s["history"].append({"role": "assistant", "text": p["summary"] or f"a {STUDIOS[studio]['name']} plan"})
         s["plan"] = p
         _save(s)
         return JSONResponse({"session": s["id"], "plan": p, "timing": timing,
-                             "final_prompt": forge.final_prompt(p) if studio == "forge" else p["prompt"]})
+                             "final_prompt": forge.final_prompt(p) if studio == "forge" else p.get("prompt", "")})
 
     @app.post("/api/assistant/render")
     async def render(req: Request) -> JSONResponse:
@@ -145,6 +151,12 @@ def register(app: FastAPI, hub) -> None:
             await runtime.unload()                           # the planner never sits in VRAM during a render
             if p.get("studio") == "video":
                 res = await video.render(port("video"), p, s["id"], progress)
+            elif p.get("studio") == "image":
+                res = await image.render(port("image"), p, forge.OUT_DIR, s["id"], progress)
+            elif p.get("studio") == "music":
+                res = await music.render(port("music"), p, s["id"], progress)
+            elif p.get("studio") == "tts":
+                res = await voice.render(port("tts"), p, s["id"], progress)
             else:
                 res = await forge.render(port("forge"), p, s["id"])
         except Exception as e:

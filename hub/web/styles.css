@@ -452,3 +452,7 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .as-src img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
 .as-vid { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
 .as-vid video { width: 100%; border-radius: 10px; background: #000; }
+.as-cast { display: grid; grid-template-columns: 110px 92px minmax(0, 1fr); gap: 6px; align-items: center; margin-top: 4px; color: var(--text); font-size: 13px; }
+.as-cast b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-cast select, .as-cast input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px; font: inherit; font-size: 12.5px; min-width: 0; }
+.as-vid audio { width: 100%; }

@@ -229,7 +229,7 @@ launcher; Linux needs Docker plus the NVIDIA Container Toolkit (NVIDIA) or the `
 
 MIT — see [LICENSE](LICENSE). The tools and their models keep their own licenses.
 
-## Assistant (Forge and Video Studio)
+## Assistant (every studio)
 
 **Assistant** in the sidebar: describe an image in plain words ("a cheerful fairy serving matcha in a tea house,
 anime style", "Anby Demara at the beach at sunset"). A local language model (Qwen3 4B through Ollama, in its own
@@ -255,3 +255,15 @@ checkpoint family's format - you check or edit the plan, and Forge renders it. A
   image as the first frame (the planner is given the tags the image was made from). Measured: plan 5-8 s on the GPU;
   Forge image 26 s, then a 5 s H3 image-to-video clip with a spoken line in about 240 s. Conversations survive a hub
   restart; the model's raw replies of the last plan are in `data/assistant/last-*.json`.
+* **Image Studio, Music Studio, Voice Studio (phase 3)** - each with its own skills in its own repo:
+  * *Image Studio* (Qwen-Image 2.1): text to image, **edit** the conversation's latest image ("edit it: make it a night
+    scene" - the planner writes one short instruction; a full re-description would change nothing), transparent
+    images (subject only, no background words). Text to print goes in quotes; text you did not ask for is removed.
+    Measured: a 3:4 poster with readable lettering in 127 s; an edit in about 220-240 s.
+  * *Music Studio* (YuE2): title, a style line (language, genre, vocal, instruments, mood, BPM) and lyrics with YuE's
+    section tags (normalised to [Verse] / [Chorus] / ...), or an instrumental. Measured: an 81 s lo-fi instrumental in 117 s.
+  * *Voice Studio* (Qwen3-TTS): a cast and a script - each voice designed from your words ("a calm British narrator"),
+    a built-in speaker only when you name one, or a saved voice; stage directions such as *yawns* are removed, a
+    requested accent is kept and an invented one dropped. Measured: one line in 18 s, a 6-line two-voice dialogue in 27 s.
+* **Skills are the assistant's only.** The studios' own pages and their built-in helpers (Forge's ModelProfile and
+  prompt enhancer, Video Studio's Enhance, Music Studio's lyric writer) do not read them.

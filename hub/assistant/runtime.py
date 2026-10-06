@@ -135,3 +135,24 @@ def debug_dump(name: str, data: dict) -> None:
         (d / f"last-{name}.json").write_text(json.dumps(data, indent=1, ensure_ascii=False), "utf-8")
     except Exception:
         pass
+
+
+async def studio_get(port: int, path: str, what: str) -> dict:
+    """GET a studio API through its hub entrance, waiting while the studio starts (503)."""
+    async with httpx.AsyncClient(timeout=60) as c:
+        for _ in range(90):
+            r = await c.get(f"http://127.0.0.1:{port}{path}")
+            if r.status_code == 200:
+                return r.json()
+            await asyncio.sleep(3)
+    raise RuntimeError(f"{what} did not answer - is it enabled in the hub?")
+
+
+async def studio_post(c: httpx.AsyncClient, url: str, **kw) -> httpx.Response:
+    """POST through an entrance, retrying while the studio is starting or the GPU is being handed over (503)."""
+    for _ in range(120):
+        r = await c.post(url, **kw)
+        if r.status_code != 503:
+            return r
+        await asyncio.sleep(3)
+    return r
