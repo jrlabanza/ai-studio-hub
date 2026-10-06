@@ -209,7 +209,7 @@
   <article class="card tool-card">
     <div class="tool-num"></div>
     <div class="tool-body">
-      <div class="tool-head"><h3 class="tool-name"></h3><span class="pill tool-pill"></span></div>
+      <div class="tool-head"><h3 class="tool-name"></h3><span class="pill tool-pill"></span><button class="btn ghost icon tool-more" data-act="menu" title="More: start in the background, log, restart, output folder"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></div>
       <p class="tool-tag"></p>
       <div class="tool-summary"><strong class="sum-label"></strong><span class="sum-detail"></span></div>
       <div class="job" hidden>
@@ -219,12 +219,10 @@
       </div>
       <div class="note warn" hidden></div>
       <div class="tool-actions">
-        <button class="btn primary" data-act="open">Open</button>
-        <button class="btn" data-act="warm" title="Free the GPU for this studio and load its model now">Warm up</button>
-        <button class="btn" data-act="unload" title="Unload this studio's model">Unload</button>
-        <button class="btn" data-act="start">Start</button>
-        <button class="btn" data-act="stop">Stop</button>
-        <button class="btn ghost icon" data-act="menu" title="More">⋯</button>
+        <button class="btn primary" data-act="open" title="Show this studio here in the hub">Open</button>
+        <button class="btn" data-act="warm" title="Free the GPU for this studio and load its model now, so the first generation starts right away">Warm up</button>
+        <button class="btn" data-act="unload" title="Unload this studio's model - the studio stays open, the GPU memory is freed">Unload</button>
+        <button class="btn" data-act="stop" title="Shut the studio down - frees its GPU and RAM">Stop</button>
       </div>
     </div>
   </article>

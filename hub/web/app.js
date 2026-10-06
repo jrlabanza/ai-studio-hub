@@ -289,15 +289,16 @@
     const total = S.state.system.gpu.total_mb || 1;
     if (hist.length < 2) return;
     const step = w / Math.max(1, 89);
+    const css = getComputedStyle(document.documentElement), accent = css.getPropertyValue("--accent").trim() || "#E05A4E", teal = css.getPropertyValue("--teal").trim() || "#1C8C7E";
     const x0 = w - step * (hist.length - 1);
     ctx.beginPath();
     hist.forEach(([, used], i) => { const x = x0 + i * step, y = h - 4 - (used / total) * (h - 10); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.strokeStyle = "#4CC38A"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+    ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
     ctx.lineTo(w, h); ctx.lineTo(x0, h); ctx.closePath();
-    ctx.fillStyle = "rgba(76,195,138,.15)"; ctx.fill();
+    ctx.globalAlpha = .14; ctx.fillStyle = accent; ctx.fill(); ctx.globalAlpha = 1;
     ctx.beginPath();
     hist.forEach(([, , util], i) => { const x = x0 + i * step, y = h - 4 - (util / 100) * (h - 10); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.strokeStyle = "#8A8A93"; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = teal; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
   }
 
   function renderToolCards() {
@@ -338,7 +339,6 @@
       const unloadable = t.supports_unload !== false;
       $('[data-act="unload"]', card).hidden = !(running && s.loaded && !s.busy && unloadable);
       $('[data-act="warm"]', card).hidden = !(t.installed && t.enabled && !s.busy && !(running && s.loaded && t.is_owner) && unloadable);
-      $('[data-act="start"]', card).hidden = !(t.installed && t.enabled && (t.state === "stopped" || t.state === "error"));
       $('[data-act="stop"]', card).hidden = !(running || t.state === "starting");
       $('[data-act="open"]', card).disabled = !t.enabled || !t.installed;
     }
@@ -364,6 +364,7 @@
     const m = document.createElement("div");
     m.className = "menu"; m.id = "ctxMenu";
     const items = [
+      ...(t.installed && t.enabled && (t.state === "stopped" || t.state === "error") ? [["Start in the background", () => api(`/api/tools/${id}/start`, { method: "POST" }).catch((e) => toast(e.message, "error"))]] : []),
       ["Open in a new tab", () => window.open(proxyUrl(t), "_blank")],
       ["View log", () => showLog(id)],
       ["Restart", () => api(`/api/tools/${id}/restart`, { method: "POST" }).catch((e) => toast(e.message, "error"))],

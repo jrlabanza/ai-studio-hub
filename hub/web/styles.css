@@ -1,19 +1,20 @@
-/* AI Studio Hub - shell styles. Palette: graphite - near-black neutral surfaces, hairline borders, a primary
-   action that is the text colour inverted, no accent colour; each studio has one small signature colour
-   (see docs/design.md). Type: Inter (UI), Fraunces (display accent), both via Google Fonts with
+/* AI Studio Hub - shell styles. Palette v7 (shared with Forge classic and Forge Studio): warm neutral
+   surfaces, a coral accent for primary actions and "you are here" states, teal for secondary markers and
+   switches; each studio keeps its small signature colour (see docs/design.md). Type: Inter (UI), Fraunces (display accent), both via Google Fonts with
    system fallbacks so the shell also works offline. */
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400&display=swap");
 
 :root {
-  --ink: #0B0B0D; --grey: #E4E4E7;
-  --bg: #F3F3F4; --panel: #FFFFFF; --panel-2: #F7F7F8; --panel-3: #EEEEF0;
-  --line: #E4E4E7; --line-2: #CFCFD4;
-  --text: #111113; --text-2: #3A3A40; --muted: #71717A; --faint: #A1A1AA;
-  --accent: #17171A; --accent-hover: #2A2A2E; --accent-ink: #FFFFFF; --accent-soft: rgba(17, 17, 19, .08);
+  --ink: #1A1513; --grey: #E6DFDA;
+  --bg: #F4F1EF; --panel: #FFFFFF; --panel-2: #FAF7F5; --panel-3: #EFE9E5;
+  --line: #E6DFDA; --line-2: #CDC3BD;
+  --text: #1F1A17; --text-2: #4A403B; --muted: #7A6E68; --faint: #ADA29C;
+  --accent: #E05A4E; --accent-hover: #C8473C; --accent-ink: #FFFFFF; --accent-soft: rgba(224, 90, 78, .12);
+  --teal: #1C8C7E; --teal-soft: rgba(28, 140, 126, .12);
   --ok: #2EA043; --busy: #4CC38A; --warn: #B7791F; --warn-bg: #FBF1DC; --danger: #D93F3F; --danger-bg: #FDE8E9;
-  --rail: #0B0B0D; --rail-text: #D4D4D8; --rail-muted: #8A8A93; --rail-line: rgba(255, 255, 255, .08); --rail-active: rgba(255, 255, 255, .10);
-  --shadow: 0 10px 30px rgba(0, 0, 0, .08); --shadow-2: 0 2px 6px rgba(0, 0, 0, .06); --shadow-primary: 0 4px 14px rgba(0, 0, 0, .18);
+  --rail: #1A1513; --rail-text: #E2DAD5; --rail-muted: #9C8F88; --rail-line: rgba(255, 255, 255, .08); --rail-active: rgba(255, 255, 255, .10);
+  --shadow: 0 10px 30px rgba(0, 0, 0, .08); --shadow-2: 0 2px 6px rgba(0, 0, 0, .06); --shadow-primary: 0 4px 14px rgba(224, 90, 78, .30);
   --radius: 14px; --radius-s: 9px;
   --font: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
   --serif: "Fraunces", Georgia, "Times New Roman", serif;
@@ -22,13 +23,14 @@
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --ink: #060607;
-  --bg: #0B0B0D; --panel: #141416; --panel-2: #1B1B1E; --panel-3: #232327;
+  --ink: #0A0807;
+  --bg: #0F0D0C; --panel: #181513; --panel-2: #1F1B19; --panel-3: #2A2522;
   --line: rgba(255, 255, 255, .085); --line-2: rgba(255, 255, 255, .16);
-  --text: #ECECEE; --text-2: #C4C4C9; --muted: #8A8A93; --faint: #5C5C66;
-  --accent: #F4F4F5; --accent-hover: #FFFFFF; --accent-ink: #0B0B0D; --accent-soft: rgba(255, 255, 255, .10);
+  --text: #F2ECE8; --text-2: #CFC5BF; --muted: #9C8F88; --faint: #645A55;
+  --accent: #FF7B6C; --accent-hover: #FF9184; --accent-ink: #1A0E0C; --accent-soft: rgba(255, 123, 108, .16);
+  --teal: #3CC2B0; --teal-soft: rgba(60, 194, 176, .14);
   --ok: #4ADE80; --warn: #FBBF24; --warn-bg: rgba(251, 191, 36, .12); --danger: #F87171; --danger-bg: rgba(248, 113, 113, .14);
-  --rail: #060607; --rail-line: rgba(255, 255, 255, .07);
+  --rail: #0A0807; --rail-line: rgba(255, 255, 255, .07);
   --shadow: 0 12px 32px rgba(0, 0, 0, .45); --shadow-2: 0 2px 6px rgba(0, 0, 0, .35); --shadow-primary: none;
   color-scheme: dark;
 }
@@ -72,7 +74,7 @@ body.collapsed .app { --rail-w: 76px; }
 .nav-item { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 10px; color: var(--rail-text); font-weight: 500; font-size: 14.5px; position: relative; white-space: nowrap; }
 .nav-item:hover { background: var(--rail-active); color: #fff; }
 .nav-item.active { background: var(--rail-active); color: #fff; }
-.nav-item.active::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0; background: var(--tool, var(--text)); }
+.nav-item.active::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0; background: var(--tool, var(--accent)); }
 .nav-ico { width: 22px; height: 22px; display: grid; place-items: center; flex: none; }
 .nav-ico svg { width: 20px; height: 20px; }
 .nav-num { width: 22px; flex: none; font-weight: 300; font-size: 15px; color: var(--tool, var(--muted)); letter-spacing: .02em; text-align: center; }
@@ -139,7 +141,6 @@ body.collapsed #btnCollapse { flex: none; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-primary); }
 .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
 .btn.ghost { background: transparent; border-color: transparent; }
 .btn.ghost:hover { background: var(--panel-3); }
 .btn.danger { color: var(--danger); border-color: var(--danger); }
@@ -459,3 +460,39 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .as-eng { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
 .as-eng select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 12.5px; }
 .as-device label { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---------------------------------------------------------------- v7 colour layer
+   Coral = the one thing to press / where you are; teal = secondary markers, on-switches, meters. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eyebrow { color: var(--teal); }
+.nav-item.active { background: rgba(255, 123, 108, .14); color: #fff; }
+.nav-item.active .nav-ico { color: #FF8A7C; }
+.rail-gpu-bar i { background: #FF8A7C; }
+.meter-bar i { background: var(--teal); }
+.stack .seg.tools, .sw.tools { background: var(--accent); }
+.stack .seg.other, .sw.other { background: var(--teal); opacity: .75; }
+.switch.on { background: var(--teal); }
+.spinner { border-top-color: var(--accent); }
+.field input[type="text"]:focus, .field input[type="number"]:focus, .field select:focus,
+.lib-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+.chip.filter:hover:not(.active) { border-color: var(--line-2); background: var(--panel); }
+.card h3 { color: var(--text); }
+.btn:hover { border-color: var(--accent); color: var(--text); }
+.btn.primary:hover { color: var(--accent-ink); }
+.btn.ghost:hover { border-color: transparent; }
+/* "Free GPU" in the top bar is a real action, not decoration: give it a visible outline. */
+#btnFreeGpu { border-color: var(--line-2); }
+#btnFreeGpu:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.tool-card.owner { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow-2); }
+/* Studio cards: Open (coral) + the one action that fits the state; everything else sits in the ⋯ menu in the head. */
+.tool-head .pill { margin-left: auto; }
+.tool-more { position: absolute; top: 12px; right: 10px; padding: 4px 6px; color: var(--muted); }
+.tool-head { padding-right: 30px; }
+.tool-more:hover { color: var(--text); }
+.tool-actions [data-act="stop"] { color: var(--danger); }
+.tool-actions [data-act="stop"]:hover { border-color: var(--danger); background: var(--danger-bg); }
+.gpu-actions .btn:last-child { color: var(--danger); }
+.gpu-actions .btn:last-child:hover { border-color: var(--danger); background: var(--danger-bg); }
+.tool-head { flex-wrap: wrap; row-gap: 4px; }
+.tool-head .tool-name { white-space: nowrap; }
+.tool-head .pill { white-space: nowrap; flex: none; }

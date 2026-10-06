@@ -5,9 +5,10 @@ same on its own and inside the hub. This page is the reference; `hub/web/styles.
 implementation of the tokens, and each studio implements the same tokens natively in its own stylesheet
 (the hub only *syncs the theme* into a studio, it never restyles it).
 
-The look is **graphite**: near-black neutral surfaces, hairline borders, one primary action that is
-simply the text colour inverted (black on light, white on dark), and no accent colour anywhere in the
-chrome. Colour is carried by the artwork and by each studio's small signature mark.
+The look is **palette v7**, shared with Forge classic and Forge Studio: warm neutral surfaces, hairline
+borders, a **coral** accent (#E05A4E light / #FF7B6C dark) for the primary action and for "you are here"
+states (active nav, focus ring, the studio that holds the GPU), and **teal** (#1C8C7E / #3CC2B0) for
+secondary markers - section labels, on-switches, meters. Each studio keeps its small signature colour.
 
 ## Tokens
 
