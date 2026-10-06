@@ -26,6 +26,10 @@
       <div class="nav-section">Studios</div>
       <div id="navTools"></div>
       <div class="nav-section">Everything</div>
+      <a class="nav-item" data-view="assistant" href="#/assistant">
+        <span class="nav-ico"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.9 2.1 2.1.9-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></span>
+        <span class="nav-label">Assistant</span>
+      </a>
       <a class="nav-item" data-view="library" href="#/library">
         <span class="nav-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
         <span class="nav-label">Library</span>
@@ -162,6 +166,9 @@
       <div class="lib-foot"><button class="btn" id="libMore" hidden>Show more</button></div>
     </section>
 
+    <!-- ------------------------------------------------------- assistant -->
+    <section class="view view-assistant" id="view-assistant" hidden></section>
+
     <!-- ---------------------------------------------------------- models -->
     <section class="view view-models" id="view-models" hidden>
       <div class="lib-bar">
@@ -224,5 +231,6 @@
 </template>
 
 <script src="/static/app.js?v={{v}}"></script>
+<script src="/static/assistant.js?v={{v}}"></script>
 </body>
 </html>

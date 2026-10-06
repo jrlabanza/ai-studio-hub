@@ -228,3 +228,21 @@ launcher; Linux needs Docker plus the NVIDIA Container Toolkit (NVIDIA) or the `
 ## License
 
 MIT — see [LICENSE](LICENSE). The tools and their models keep their own licenses.
+
+## Assistant (phase 1: Forge)
+
+**Assistant** in the sidebar: describe an image in plain words ("a cheerful fairy serving matcha in a tea house,
+anime style", "Anby Demara at the beach at sunset"). A local language model (Qwen3 4B through Ollama, in its own
+`ai-assistant-llm` container) plans it from what is installed - checkpoint, LoRAs and weights, a prompt in the
+checkpoint family's format - you check or edit the plan, and Forge renders it. Ask for changes in your own words.
+
+* **Skills belong to the studios:** each studio repo keeps `assistant/skills/*.md`; the assistant loads only the
+  driving studio's skills (Forge: its model families; Video Studio, in phase 2: LTX-2.5 and MiniMax H3 only).
+* **GPU handling (Planner: Auto):** the planner runs on the GPU when it is free - an idle studio holding it is unloaded
+  first - and on the CPU while a studio is rendering; it is always unloaded before a render, so the studio gets the
+  GPU. Measured on an 8 GB RTX 3070 laptop: a plan in about 4-8 s on the GPU (two short model calls), about 25-60 s on
+  the CPU; a 1024x1344 render in Forge about 26-28 s.
+* **Guard rails in code, not left to the small model:** only installed checkpoints and LoRAs, LoRAs compatible with the
+  checkpoint's base model, a character LoRA only when you name that character (series names such as "Genshin" do not
+  count), the checkpoint follows a named character's LoRA, Anima / Animagine only when you name them, trigger words
+  added, negations moved to the negative prompt, "no people" becomes scenery.

@@ -79,7 +79,7 @@
   // ------------------------------------------------------------------ router
   function route() {
     const hash = location.hash || "#/home";
-    const m = hash.match(/^#\/(home|tool|library|models|settings)(?:\/(\w+))?/);
+    const m = hash.match(/^#\/(home|tool|library|models|settings|assistant)(?:\/(\w+))?/);
     const view = m ? m[1] : "home";
     const tool = m && m[2];
     showView(view, tool);
@@ -104,8 +104,9 @@
     } else {
       S.tool = null;
       num.hidden = true;
-      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings" }[view] || "Home";
-      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU" }[view] || "";
+      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings", assistant: "Assistant" }[view] || "Home";
+      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU", assistant: "Describe it - the assistant picks the model, LoRAs and prompt, then the studio renders" }[view] || "";
+      if (view === "assistant" && window.Assistant) window.Assistant.show();
       sendFocus(null);
       if (view === "library") loadLibrary(true);
       if (view === "models") { if (tool) S.models.tool = tool; loadModels(); }

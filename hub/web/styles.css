@@ -402,3 +402,48 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .am-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-s); max-height: 50vh; overflow: auto; }
 .am-list:empty { border: 0; }
 .am-list .mrow:first-child { border-top: 0; }
+
+/* ---------------------------------------------------------------- assistant */
+.view-assistant { padding: 22px; }
+.as-wrap { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 18px; height: calc(100vh - 104px); }
+.as-chat { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; }
+.as-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.as-device { font-size: 12.5px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+.as-device select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; }
+.as-model { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; }
+.as-log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.as-empty { margin: auto; max-width: 520px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.as-hello { font-size: 26px; color: var(--text); margin-bottom: 8px; }
+.as-msg { max-width: 85%; padding: 10px 13px; border-radius: 14px; font-size: 14px; line-height: 1.5; }
+.as-msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
+.as-msg.assistant { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.as-meta { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.as-note { margin-top: 4px; font-size: 12px; color: var(--muted); font-style: italic; }
+.as-err { color: var(--danger); }
+.as-input { display: flex; gap: 10px; padding: 12px; border-top: 1px solid var(--line); align-items: flex-end; }
+.as-input textarea { flex: 1; resize: none; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 14px; }
+.as-side { display: flex; flex-direction: column; gap: 18px; min-height: 0; overflow-y: auto; }
+.as-plan { display: flex; flex-direction: column; gap: 10px; }
+.as-plan-empty { color: var(--muted); font-size: 13.5px; padding: 18px 4px; text-align: center; }
+.as-plan-head { display: flex; justify-content: space-between; align-items: center; }
+.as-f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.as-f > span { font-weight: 600; }
+.as-f input, .as-f textarea { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; min-width: 0; }
+.as-f textarea { resize: vertical; line-height: 1.45; }
+.as-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.as-grid .as-f input { width: 100%; box-sizing: border-box; }
+.as-head .chip.filter { cursor: pointer; }
+.as-head .chip.filter.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.as-head .chip.filter:disabled { opacity: .55; cursor: not-allowed; }
+.as-side { overflow-x: hidden; }
+.as-loras { display: flex; flex-direction: column; gap: 6px; }
+.as-lora { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
+.as-lora b { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-lora input { width: 64px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; }
+.as-lora .btn { padding: 4px 8px; }
+.as-dim { color: var(--muted); font-size: 12px; }
+.as-more summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.as-actions { display: flex; align-items: center; gap: 12px; }
+.as-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.as-img img { width: 100%; border-radius: 10px; display: block; border: 1px solid var(--line); }
+@media (max-width: 900px) { .as-wrap { grid-template-columns: 1fr; height: auto; } .as-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

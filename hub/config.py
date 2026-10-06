@@ -79,6 +79,8 @@ class Settings:
     pin_memory: bool = True              # AI_PIN_MEMORY for every studio: page-locked RAM for CPU<->GPU transfers
     hf_token: str = ""                   # HuggingFace token for gated models (Models page)
     civitai_token: str = ""              # Civitai API key for downloads that need it
+    assistant_device: str = "auto"       # the assistant's language model: auto (GPU when free, else CPU) | gpu | cpu
+    assistant_model: str = "qwen3:4b"    # Ollama model for planning (runs in the ai-assistant-llm container)
     tools: dict[str, dict[str, Any]] = field(default_factory=lambda: copy.deepcopy(DEFAULT_TOOLS))
 
     def to_dict(self) -> dict[str, Any]:

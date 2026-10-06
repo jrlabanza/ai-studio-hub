@@ -41,6 +41,8 @@ def create_app(hub: Hub) -> FastAPI:
             await hub.stop()
 
     app = FastAPI(title=APP_NAME, version=__version__, lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
+    from .assistant.routes import register as register_assistant
+    register_assistant(app, hub)
 
     # ------------------------------------------------------------------ shell
     @app.get("/", response_class=HTMLResponse)
