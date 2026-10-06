@@ -116,7 +116,8 @@ def register(app: FastAPI, hub) -> None:
             await runtime.ensure_running(load_settings().assistant_model)
             device, freed = await choose_device(body.get("device"))
             if studio == "video":
-                p, timing = await video.plan(port(studio), text, s["history"], prev, device, _last_image(s))
+                p, timing = await video.plan(port(studio), text, s["history"], prev, device, _last_image(s),
+                                             force_engine=body.get("engine"))
             elif studio == "image":
                 p, timing = await image.plan(port(studio), text, s["history"], prev, device, _last_image(s))
             elif studio == "music":

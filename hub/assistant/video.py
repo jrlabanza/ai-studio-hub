@@ -38,7 +38,10 @@ def _drop_quoted_speech(text: str, said: list[str]) -> str:
         return text
     q = r"[\"'‘“][^\"'’”]{1,200}?([.!?]?)[\"'’”]"
     verbs = r"(?:says|said|saying|replies|replying|responds|responding|shouts|shouting|asks|asking|exclaims|exclaiming|whispers|whispering)"
-    t = re.sub(r",?\s*(?:and\s+|then\s+)?" + verbs + r"\b[,:]?\s*" + q, lambda m: "." if m.group(1) else "", text, flags=re.I)
+    def cut(m):            # end the sentence only when the quote ended it ("...says 'Hi!' She waves"), not mid-clause
+        rest = m.string[m.end():].lstrip()
+        return "." if m.group(1) and (not rest or rest[0].isupper()) else ""
+    t = re.sub(r",?\s*(?:and\s+|then\s+)?" + verbs + r"\b[,:]?\s*" + q + r"(?:\s+in an? [a-z ,-]{2,40}?voice)?", cut, text, flags=re.I)
     keys = [l.strip(" .!?\"'").lower() for l in said if l.strip(" .!?\"'")]
     out = []
     for sent in re.split(r"(?<=[.!?])\s+", t):
@@ -104,7 +107,7 @@ def _h3_shape(text: str, request: str) -> str:
 
 
 async def plan(port: int, request: str, history: list[dict], prev: dict | None, device: str,
-               image: dict | None) -> tuple[dict, dict]:
+               image: dict | None, force_engine: str | None = None) -> tuple[dict, dict]:
     inv = await inventory(port)
     engines = {k: v for k, v in inv["engines"].items() if v["ready"]}
     if not engines:
@@ -132,6 +135,11 @@ async def plan(port: int, request: str, history: list[dict], prev: dict | None, 
         engine = "ltx25"                                # the user's explicit choice wins
     elif re.search(r"\b(h3|minimax)\b", said) and "h3" in engines:
         engine = "h3"
+    if force_engine in ("h3", "ltx25"):        # the Engine setting / the plan card's switch
+        if force_engine in engines:
+            engine = force_engine
+        else:
+            notes.append(f"{force_engine} is not installed")
     if engine not in engines:
         engine = "h3" if "h3" in engines else next(iter(engines))
         notes.append(f"using {engines[engine]['name']} (the other engine is not installed)")
@@ -143,7 +151,7 @@ async def plan(port: int, request: str, history: list[dict], prev: dict | None, 
     m = re.search(r"(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b", request.lower())
     if m:
         seconds = float(m.group(1))                     # a length the user typed wins
-    if seconds > e["max_seconds"] and engine == "h3" and "ltx25" in engines and not re.search(r"\b(h3|minimax)\b", said):
+    if seconds > e["max_seconds"] and engine == "h3" and "ltx25" in engines and force_engine != "h3" and not re.search(r"\b(h3|minimax)\b", said):
         engine, e = "ltx25", engines["ltx25"]
         notes.append(f"LTX-2.5: {seconds:g} s is longer than MiniMax H3's {engines['h3']['max_seconds']} s")
     if seconds > e["max_seconds"]:
@@ -177,7 +185,7 @@ async def plan(port: int, request: str, history: list[dict], prev: dict | None, 
         prompt = " ".join(str(w.get("prompt") or request).replace("\n", " ").split())
     p = {"studio": "video", "engine": engine, "engine_name": e["name"], "mode": mode, "seconds": round(seconds, 1),
          "aspect": aspect, "size": e["default_size"], "sizes": e["sizes"], "prompt": prompt, "turbo": True,
-         "image": image if mode == "i2v" else None, "summary": str(w.get("summary") or "")[:300],
+         "engines": {k: v["name"] for k, v in engines.items()}, "image": image if mode == "i2v" else None, "summary": str(w.get("summary") or "")[:300],
          "reason": str(pick.get("reason") or "")[:300], "notes": notes}
     return p, {"seconds": round(time.time() - t0, 1), "device": device, "calls": [info1, info2]}
 

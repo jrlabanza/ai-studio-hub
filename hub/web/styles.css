@@ -456,3 +456,6 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .as-cast b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .as-cast select, .as-cast input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px; font: inherit; font-size: 12.5px; min-width: 0; }
 .as-vid audio { width: 100%; }
+.as-eng { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.as-eng select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 12.5px; }
+.as-device label { display: inline-flex; gap: 6px; align-items: center; }

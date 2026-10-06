@@ -3,7 +3,10 @@
 (function () {
   const $ = (q, el = document) => el.querySelector(q);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const A = { session: null, studio: "forge", plan: null, msgs: [], busy: false, state: null, inv: null };
+  const store = { get: (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private window */ } } };
+  const A = { session: null, studio: "forge", plan: null, msgs: [], busy: false, state: null, inv: null,
+              engine: store.get("as.engine", "auto"), lastText: "" };
+  const ENGINES = { auto: "Auto", h3: "MiniMax H3", ltx25: "LTX-2.5" };
 
   async function api(path, body, method) {
     const r = await fetch(path, body ? { method: method || "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
@@ -58,8 +61,11 @@
     const dev = st.device === "auto" ? `Auto (now ${st.would_use === "gpu" ? "GPU" : "CPU"})` : st.device.toUpperCase();
     $("#asDevice").innerHTML = `<label title="Where the assistant's language model thinks. Auto: the GPU when it is free (an idle studio is unloaded first), the CPU while a studio is rendering. It is always unloaded before a render.">Planner: <select id="asDev">
       ${["auto", "gpu", "cpu"].map((d) => `<option value="${d}" ${d === st.device ? "selected" : ""}>${d === "auto" ? "Auto" : d.toUpperCase()}</option>`).join("")}</select></label>
-      <span class="as-model">${esc(st.model)} · ${dev}</span>`;
+      <span class="as-model">${esc(st.model)} · ${dev}</span>
+      ${A.studio === "video" ? `<label title="Which video engine to plan for. Auto: MiniMax H3 for talking, singing, acting and anime; LTX-2.5 for cinematic footage and clips over 15 s.">Engine: <select id="asEng">
+        ${Object.entries(ENGINES).map(([k, n]) => `<option value="${k}" ${k === A.engine ? "selected" : ""}>${n}</option>`).join("")}</select></label>` : ""}`;
     $("#asDev").onchange = async (e) => { A.state = await api("/api/assistant/settings", { device: e.target.value }, "PUT"); renderStudios(); };
+    if ($("#asEng")) $("#asEng").onchange = (e) => { A.engine = e.target.value; store.set("as.engine", A.engine); };
   }
 
   function addMsg(role, html) {
@@ -79,10 +85,16 @@
     if (!text || A.busy) return;
     ta.value = "";
     addMsg("user", esc(text));
+    A.lastText = text;
+    await planFor(text, A.studio === "video" && A.engine !== "auto" ? A.engine : null);
+  }
+
+  async function planFor(text, engine) {
+    if (A.busy) return;
     const wait = addMsg("assistant", `<span class="spinner"></span> Planning…`);
     A.busy = true; $("#asSend").disabled = true;
     try {
-      const d = await api("/api/assistant/plan", { studio: A.studio, message: text, session: A.session });
+      const d = await api("/api/assistant/plan", { studio: A.studio, message: text, session: A.session, ...(engine ? { engine } : {}) });
       A.session = d.session; A.plan = d.plan;
       const t = d.timing;
       const P = d.plan;
@@ -133,7 +145,9 @@
   function renderVideoPlan() {
     const p = A.plan; const box = $("#asPlan");
     box.innerHTML = `
-      <div class="as-plan-head"><span class="eyebrow">Plan · Video Studio</span><span class="badge">${esc(p.engine_name)}</span></div>
+      <div class="as-plan-head"><span class="eyebrow">Plan · Video Studio</span>
+        <label class="as-eng" title="Switching re-plans the clip for that engine - LTX-2.5 and MiniMax H3 need differently written prompts">Engine
+          <select id="vEng">${Object.entries(p.engines || { [p.engine]: p.engine_name }).map(([k, n]) => `<option value="${k}" ${k === p.engine ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div>
       ${p.image ? `<div class="as-src"><img src="${esc(p.image.url)}" alt=""><div><b>Image to video</b><div class="as-dim">first frame: ${esc(p.image.label)}</div></div></div>` : ""}
       <label class="as-f"><span>Prompt (${p.engine === "h3" ? "MiniMax H3 format" : "LTX-2.5"})</span><textarea id="vPrompt" rows="${p.engine === "h3" ? 11 : 6}">${esc(p.prompt)}</textarea></label>
       <div class="as-grid">
@@ -144,6 +158,11 @@
       </div>
       <div class="as-actions"><button class="btn primary" id="pGo">Generate video</button><span class="as-dim" id="pState"></span></div>`;
     $("#pGo").onclick = render;
+    $("#vEng").onchange = async (e) => {
+      const eng = e.target.value;
+      addMsg("user", `Use ${esc(ENGINES[eng] || eng)} for this clip`);
+      await planFor(A.lastText || "the same clip", eng);
+    };
   }
 
   const opt = (list, cur) => list.map((x) => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("");

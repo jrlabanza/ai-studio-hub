@@ -246,7 +246,9 @@ checkpoint family's format - you check or edit the plan, and Forge renders it. A
   checkpoint's base model, a character LoRA only when you name that character (series names such as "Genshin" do not
   count), the checkpoint follows a named character's LoRA, Anima / Animagine only when you name them, trigger words
   added, negations moved to the negative prompt, "no people" becomes scenery.
-* **Video Studio (phase 2):** pick *Video Studio* above the chat and describe a clip. The planner chooses the engine
+* **Video Studio (phase 2):** pick *Video Studio* above the chat and describe a clip. **Engine** (next to Planner):
+  *Auto*, *MiniMax H3* or *LTX-2.5* - a fixed choice plans every clip for that engine; the plan card's Engine switch
+  re-plans the same clip for the other one (the two need differently written prompts). On Auto the planner chooses the engine
   (MiniMax H3 for speech, singing, acting and anime; LTX-2.5 for cinematic footage and anything over 15 s), the mode,
   length and orientation, and writes the prompt in that engine's format - for H3 the model fills the scene, the spoken
   lines, the soundscape and the music separately and the code builds H3's three-field format with the
