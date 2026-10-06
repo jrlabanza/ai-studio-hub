@@ -447,3 +447,8 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .as-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 .as-img img { width: 100%; border-radius: 10px; display: block; border: 1px solid var(--line); }
 @media (max-width: 900px) { .as-wrap { grid-template-columns: 1fr; height: auto; } .as-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.as-f select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; width: 100%; }
+.as-src { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.as-src img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.as-vid { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
+.as-vid video { width: 100%; border-radius: 10px; background: #000; }

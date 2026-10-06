@@ -9,20 +9,48 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..config import load_settings, save_settings
-from . import forge, runtime
+from . import forge, runtime, video
 
 SESSIONS: dict[str, dict] = {}
 STUDIOS = {"forge": {"name": "Forge", "ready": True},
-           "video": {"name": "Video Studio", "ready": False}, "image": {"name": "Image Studio", "ready": False},
+           "video": {"name": "Video Studio", "ready": True}, "image": {"name": "Image Studio", "ready": False},
            "music": {"name": "Music Studio", "ready": False}, "tts": {"name": "Voice Studio", "ready": False}}
 
 
+def _load(sid: str) -> dict | None:
+    """A conversation from disk (sessions survive hub restarts)."""
+    if not sid or not sid.isalnum():
+        return None
+    f = forge.OUT_DIR / sid / "session.json"
+    try:
+        s = json.loads(f.read_text("utf-8"))
+        s["progress"] = None
+        SESSIONS[sid] = s
+        return s
+    except Exception:
+        return None
+
+
 def _session(sid: str | None, studio: str) -> dict:
-    if sid and sid in SESSIONS:
+    if sid and (sid in SESSIONS or _load(sid)):
         return SESSIONS[sid]
     sid = uuid.uuid4().hex[:12]
-    SESSIONS[sid] = {"id": sid, "studio": studio, "history": [], "plan": None, "renders": [], "created": time.time()}
+    SESSIONS[sid] = {"id": sid, "studio": studio, "history": [], "plan": None, "renders": [], "created": time.time(),
+                     "progress": None}
     return SESSIONS[sid]
+
+
+def _last_image(s: dict) -> dict | None:
+    """The newest image rendered in this conversation (Forge), for "animate it"."""
+    for r in reversed(s["renders"]):
+        for url in reversed(r.get("images") or []):
+            name = url.rsplit("/", 1)[-1]
+            path = forge.OUT_DIR / s["id"] / name
+            if path.is_file():
+                plan = r.get("plan") or {}
+                return {"path": str(path), "url": url, "label": f"the {plan.get('checkpoint', 'Forge')} image from this conversation",
+                        "description": plan.get("prompt_core", "")}
+    return None
 
 
 def _save(s: dict) -> None:
@@ -75,43 +103,62 @@ def register(app: FastAPI, hub) -> None:
     async def plan(req: Request) -> JSONResponse:
         body = await req.json()
         studio = body.get("studio") or "forge"
-        if studio != "forge":
-            raise HTTPException(400, f"{STUDIOS.get(studio, {}).get('name', studio)} comes in phase 2")
+        if not STUDIOS.get(studio, {}).get("ready"):
+            raise HTTPException(400, f"{STUDIOS.get(studio, {}).get('name', studio)} comes later")
         text = " ".join(str(body.get("message") or "").split())
         if not text:
             raise HTTPException(400, "say what to make")
         s = _session(body.get("session"), studio)
+        s["studio"] = studio
+        prev = s["plan"] if (s["plan"] or {}).get("studio") == studio else None
         try:
             await runtime.ensure_running(load_settings().assistant_model)
             device, freed = await choose_device(body.get("device"))
-            p, timing = await forge.plan(port(studio), text, s["history"], s["plan"], device)
+            if studio == "video":
+                p, timing = await video.plan(port(studio), text, s["history"], prev, device, _last_image(s))
+            else:
+                p, timing = await forge.plan(port(studio), text, s["history"], prev, device)
             timing["freed"] = freed
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(500, str(e))
         s["history"].append({"role": "user", "text": text})
-        s["history"].append({"role": "assistant", "text": p["summary"] or f"{p['checkpoint']} with {len(p['loras'])} LoRA(s)"})
+        s["history"].append({"role": "assistant", "text": p["summary"] or (f"{p['checkpoint']} with {len(p['loras'])} LoRA(s)"
+                                                                          if studio == "forge" else f"{p['engine_name']} {p['seconds']} s")})
         s["plan"] = p
         _save(s)
-        return JSONResponse({"session": s["id"], "plan": p, "timing": timing, "final_prompt": forge.final_prompt(p)})
+        return JSONResponse({"session": s["id"], "plan": p, "timing": timing,
+                             "final_prompt": forge.final_prompt(p) if studio == "forge" else p["prompt"]})
 
     @app.post("/api/assistant/render")
     async def render(req: Request) -> JSONResponse:
         body = await req.json()
-        s = SESSIONS.get(body.get("session") or "")
+        s = SESSIONS.get(body.get("session") or "") or _load(body.get("session") or "")
         if not s or not (body.get("plan") or s.get("plan")):
             raise HTTPException(400, "plan first")
         p = {**s["plan"], **(body.get("plan") or {})}      # the plan as edited in the panel
         s["plan"] = p
+        def progress(stage, frac):
+            s["progress"] = {"stage": stage, "progress": frac, "at": time.time()}
         try:
             await runtime.unload()                           # the planner never sits in VRAM during a render
-            res = await forge.render(port(s["studio"]), p, s["id"])
+            if p.get("studio") == "video":
+                res = await video.render(port("video"), p, s["id"], progress)
+            else:
+                res = await forge.render(port("forge"), p, s["id"])
         except Exception as e:
             raise HTTPException(500, str(e))
+        finally:
+            s["progress"] = None
         s["renders"].append({**res, "plan": p, "at": time.time()})
         _save(s)
         return JSONResponse({"session": s["id"], **res})
+
+    @app.get("/api/assistant/progress/{sid}")
+    async def progress_of(sid: str) -> JSONResponse:
+        s = SESSIONS.get(sid)
+        return JSONResponse((s or {}).get("progress") or {})
 
     @app.get("/api/assistant/file/{sid}/{name}")
     async def file(sid: str, name: str):

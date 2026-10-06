@@ -91,8 +91,15 @@ async def chat(messages: list[dict], schema: dict | None = None, device: str = "
     if schema:
         body["format"] = schema
     t = time.time()
-    async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10)) as c:
-        r = await c.post(f"{OLLAMA}/api/chat", json=body)
+    for attempt in range(2):            # one retry: a dropped connection while the model loads
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10)) as c:
+                r = await c.post(f"{OLLAMA}/api/chat", json=body)
+            break
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError):
+            if attempt:
+                raise
+            await asyncio.sleep(2)
     if r.status_code != 200:
         raise RuntimeError(f"language model error: {r.text[:300]}")
     d = r.json()
@@ -117,3 +124,14 @@ def parse_json(text: str) -> dict:
     except json.JSONDecodeError:
         a, b = text.find("{"), text.rfind("}")
         return json.loads(text[a:b + 1]) if a >= 0 and b > a else {}
+
+
+def debug_dump(name: str, data: dict) -> None:
+    """The model's raw replies of the last plan, for checking what it actually wrote (data/assistant/last-<name>.json)."""
+    try:
+        from ..config import DATA_DIR
+        d = DATA_DIR / "assistant"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"last-{name}.json").write_text(json.dumps(data, indent=1, ensure_ascii=False), "utf-8")
+    except Exception:
+        pass

@@ -229,7 +229,7 @@ launcher; Linux needs Docker plus the NVIDIA Container Toolkit (NVIDIA) or the `
 
 MIT — see [LICENSE](LICENSE). The tools and their models keep their own licenses.
 
-## Assistant (phase 1: Forge)
+## Assistant (Forge and Video Studio)
 
 **Assistant** in the sidebar: describe an image in plain words ("a cheerful fairy serving matcha in a tea house,
 anime style", "Anby Demara at the beach at sunset"). A local language model (Qwen3 4B through Ollama, in its own
@@ -246,3 +246,12 @@ checkpoint family's format - you check or edit the plan, and Forge renders it. A
   checkpoint's base model, a character LoRA only when you name that character (series names such as "Genshin" do not
   count), the checkpoint follows a named character's LoRA, Anima / Animagine only when you name them, trigger words
   added, negations moved to the negative prompt, "no people" becomes scenery.
+* **Video Studio (phase 2):** pick *Video Studio* above the chat and describe a clip. The planner chooses the engine
+  (MiniMax H3 for speech, singing, acting and anime; LTX-2.5 for cinematic footage and anything over 15 s), the mode,
+  length and orientation, and writes the prompt in that engine's format - for H3 the model fills the scene, the spoken
+  lines, the soundscape and the music separately and the code builds H3's three-field format with the
+  `(S1) says: <d>[English] ...</d>` dialogue tags. Video Studio's own skills (general + H3 + LTX-2.5) are the only ones
+  loaded. **Chaining:** after a Forge image in the same conversation, "animate it" plans an image-to-video clip with that
+  image as the first frame (the planner is given the tags the image was made from). Measured: plan 5-8 s on the GPU;
+  Forge image 26 s, then a 5 s H3 image-to-video clip with a spoken line in about 240 s. Conversations survive a hub
+  restart; the model's raw replies of the last plan are in `data/assistant/last-*.json`.

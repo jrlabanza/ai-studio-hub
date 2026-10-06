@@ -227,6 +227,7 @@ async def plan(port: int, request: str, history: list[dict], prev: dict | None, 
     out2, info2 = await runtime.chat(msg2, WRITE_SCHEMA, device=device, keep=False)
     await runtime.unload()
     w = runtime.parse_json(out2)
+    runtime.debug_dump("forge", {"pick": out1, "write": out2})
     # 3) check and complete it
     short_by = {l["name"]: l for l in short}
     all_by = {l["name"]: l for l in inv["loras"]}

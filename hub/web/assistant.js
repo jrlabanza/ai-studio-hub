@@ -49,6 +49,9 @@
     $("#asStudios").innerHTML = Object.entries(st.studios).map(([id, s]) =>
       `<button class="chip filter ${id === A.studio ? "active" : ""}" data-id="${id}" ${s.ready ? "" : "disabled title='Coming in phase 2'"}>${esc(s.name)}${s.ready ? "" : " · soon"}</button>`).join("");
     $("#asStudios").querySelectorAll("button[data-id]").forEach((b) => b.onclick = () => { if (!b.disabled) { A.studio = b.dataset.id; renderStudios(); } });
+    $("#asText").placeholder = A.studio === "video"
+      ? "Describe the clip… or \"animate it\" to bring the last image to life (Enter to plan)"
+      : "Describe the image… (Enter to plan, Shift+Enter for a new line)";
     const dev = st.device === "auto" ? `Auto (now ${st.would_use === "gpu" ? "GPU" : "CPU"})` : st.device.toUpperCase();
     $("#asDevice").innerHTML = `<label title="Where the assistant's language model thinks. Auto: the GPU when it is free (an idle studio is unloaded first), the CPU while a studio is rendering. It is always unloaded before a render.">Planner: <select id="asDev">
       ${["auto", "gpu", "cpu"].map((d) => `<option value="${d}" ${d === st.device ? "selected" : ""}>${d === "auto" ? "Auto" : d.toUpperCase()}</option>`).join("")}</select></label>
@@ -79,7 +82,10 @@
       const d = await api("/api/assistant/plan", { studio: A.studio, message: text, session: A.session });
       A.session = d.session; A.plan = d.plan;
       const t = d.timing;
-      wait.innerHTML = `${esc(d.plan.summary || "Here is the plan.")}<div class="as-meta">${esc(d.plan.checkpoint)} · ${d.plan.loras.length} LoRA${d.plan.loras.length === 1 ? "" : "s"} · planned in ${t.seconds}s on the ${t.device.toUpperCase()}${(t.freed || []).length ? ` (${esc(t.freed.join(", "))})` : ""}</div>` +
+      const what = d.plan.studio === "video"
+        ? `${esc(d.plan.engine_name)} · ${d.plan.mode === "i2v" ? "image to video" : "text to video"} · ${d.plan.seconds} s · ${esc(d.plan.aspect)}`
+        : `${esc(d.plan.checkpoint)} · ${d.plan.loras.length} LoRA${d.plan.loras.length === 1 ? "" : "s"}`;
+      wait.innerHTML = `${esc(d.plan.summary || "Here is the plan.")}<div class="as-meta">${what} · planned in ${t.seconds}s on the ${t.device.toUpperCase()}${(t.freed || []).length ? ` (${esc(t.freed.join(", "))})` : ""}</div>` +
         (d.plan.notes || []).map((n) => `<div class="as-note">${esc(n)}</div>`).join("");
       renderPlan();
     } catch (e) {
@@ -91,6 +97,7 @@
   }
 
   function renderPlan() {
+    if (A.plan && A.plan.studio === "video") return renderVideoPlan();
     const p = A.plan; const box = $("#asPlan");
     if (!p) return;
     box.innerHTML = `
@@ -114,7 +121,31 @@
     $("#pGo").onclick = render;
   }
 
+  function renderVideoPlan() {
+    const p = A.plan; const box = $("#asPlan");
+    box.innerHTML = `
+      <div class="as-plan-head"><span class="eyebrow">Plan · Video Studio</span><span class="badge">${esc(p.engine_name)}</span></div>
+      ${p.image ? `<div class="as-src"><img src="${esc(p.image.url)}" alt=""><div><b>Image to video</b><div class="as-dim">first frame: ${esc(p.image.label)}</div></div></div>` : ""}
+      <label class="as-f"><span>Prompt (${p.engine === "h3" ? "MiniMax H3 format" : "LTX-2.5"})</span><textarea id="vPrompt" rows="${p.engine === "h3" ? 11 : 6}">${esc(p.prompt)}</textarea></label>
+      <div class="as-grid">
+        <label class="as-f"><span>Seconds</span><input id="vSec" type="number" step="0.5" value="${p.seconds}"></label>
+        <label class="as-f"><span>Shape</span><select id="vAsp">${["16:9", "9:16", "1:1"].map((a) => `<option ${a === p.aspect ? "selected" : ""}>${a}</option>`).join("")}</select></label>
+        <label class="as-f"><span>Size</span><select id="vSize">${(p.sizes || [p.size]).map((z) => `<option ${z === p.size ? "selected" : ""}>${z}</option>`).join("")}</select></label>
+        ${p.engine === "h3" ? `<label class="as-f"><span>Speed</span><select id="vTurbo"><option value="1" ${p.turbo ? "selected" : ""}>Turbo</option><option value="0" ${p.turbo ? "" : "selected"}>Full</option></select></label>` : ""}
+      </div>
+      <div class="as-actions"><button class="btn primary" id="pGo">Generate video</button><span class="as-dim" id="pState"></span></div>`;
+    $("#pGo").onclick = render;
+  }
+
+  function collectVideo() {
+    const p = A.plan;
+    p.prompt = $("#vPrompt").value.trim();
+    p.seconds = Math.max(1, Math.min(20, parseFloat($("#vSec").value) || p.seconds));
+    p.aspect = $("#vAsp").value; p.size = $("#vSize").value; if ($("#vTurbo")) p.turbo = $("#vTurbo").value === "1";
+  }
+
   function collect() {
+    if (A.plan && A.plan.studio === "video") return collectVideo();
     const p = A.plan; const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) ? v : d; };
     p.prompt_core = $("#pPrompt").value.trim();
     p.negative = $("#pNeg").value.trim();
@@ -128,15 +159,29 @@
   async function render() {
     if (A.busy) return;
     collect();
-    A.busy = true; $("#pGo").disabled = true; $("#pState").innerHTML = `<span class="spinner"></span> Rendering in Forge…`;
+    const studioName = A.plan.studio === "video" ? "Video Studio" : "Forge";
+    A.busy = true; $("#pGo").disabled = true; $("#pState").innerHTML = `<span class="spinner"></span> Rendering in ${studioName}…`;
     const t0 = Date.now();
-    const tick = setInterval(() => { $("#pState").innerHTML = `<span class="spinner"></span> Rendering in Forge… ${Math.round((Date.now() - t0) / 1000)}s`; }, 1000);
+    let stage = "";
+    const tick = setInterval(async () => {
+      if (A.plan.studio === "video") {
+        const pr = await api(`/api/assistant/progress/${A.session}`).catch(() => ({}));
+        if (pr.stage) stage = ` · ${pr.stage}${pr.progress ? ` ${Math.round(pr.progress * 100)}%` : ""}`;
+      }
+      $("#pState").innerHTML = `<span class="spinner"></span> Rendering in ${studioName}… ${Math.round((Date.now() - t0) / 1000)}s${esc(stage)}`;
+    }, 2000);
     try {
       const d = await api("/api/assistant/render", { session: A.session, plan: A.plan });
       const res = $("#asResults"); res.hidden = false;
-      res.insertAdjacentHTML("afterbegin", d.images.map((u) => `<a href="${u}" target="_blank" class="as-img"><img src="${u}" alt=""></a>`).join(""));
-      $("#pState").textContent = `Done in ${d.seconds}s - saved in Forge's outputs too. Ask for changes on the left.`;
-      addMsg("assistant", `Rendered ${d.images.length} image${d.images.length > 1 ? "s" : ""} in ${d.seconds}s.`);
+      if (d.videos) {
+        res.insertAdjacentHTML("afterbegin", d.videos.map((u) => `<div class="as-vid"><video src="${u}" controls loop playsinline></video><div class="as-dim">${esc(d.info || "")}</div></div>`).join(""));
+        $("#pState").textContent = `Done in ${d.seconds}s - it is in Video Studio's History too.`;
+        addMsg("assistant", `Rendered the clip in ${d.seconds}s.`);
+      } else {
+        res.insertAdjacentHTML("afterbegin", d.images.map((u) => `<a href="${u}" target="_blank" class="as-img"><img src="${u}" alt=""></a>`).join(""));
+        $("#pState").textContent = `Done in ${d.seconds}s - saved in Forge's outputs too. Ask for changes on the left.`;
+        addMsg("assistant", `Rendered ${d.images.length} image${d.images.length > 1 ? "s" : ""} in ${d.seconds}s. To animate it: pick Video Studio above and say "animate it".`);
+      }
     } catch (e) {
       $("#pState").innerHTML = `<span class="as-err">${esc(e.message)}</span>`;
     } finally {
