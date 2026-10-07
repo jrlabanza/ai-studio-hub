@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import httpx
+import psutil
 
 from .config import load_settings
 from .tools import Step, Summary
@@ -322,6 +323,27 @@ class Orchestrator:
                         self._record(tool_id, f"{tool.spec.name} would like {shortfall / 1024:.1f} GB more than is free; "
                                      f"stopping the other studios would only give back {reclaimable / 1024:.1f} GB, so they stay up", "warn")
 
+                # 3b. System RAM: an idle studio that was only unloaded keeps its process - and often its model,
+                #     offloaded to RAM. A heavy job (MiniMax H3) then runs out of RAM and the kernel kills it, so
+                #     idle studios are stopped, least recently used first, until the job's RAM need fits.
+                need_ram = float(getattr(tool.spec, "ram_need_gb", 0) or 0)
+                if need_ram:
+                    avail, own = await self._ram_for(tool_id)
+                    if avail + own < need_ram:
+                        idle = sorted((t for t in others if t.running and not t.external and not self.summary(t.id).busy
+                                       and not t.cfg.get("pinned")), key=lambda t: self.last_activity.get(t.id, 0.0))
+                        for t in idle:
+                            await t.stop(f"{tool.spec.name} needs the RAM")
+                            t.held_until = time.time() + 10 * 60
+                            actions.append(f"stopped {t.spec.name} for RAM")
+                            await asyncio.sleep(3.0)
+                            avail, own = await self._ram_for(tool_id)
+                            if avail + own >= need_ram:
+                                break
+                        if avail + own < need_ram:
+                            self._record(tool_id, f"{tool.spec.name} would like about {need_ram:.0f} GB of RAM; "
+                                         f"{avail + own:.1f} GB is available - close other programs if the job fails", "warn")
+
                 # 4. A local Ollama (lyric writing in Music Studio) keeps models resident for minutes.
                 if not await enough() and s.release_ollama:
                     if await self._release_ollama():
@@ -357,6 +379,24 @@ class Orchestrator:
         if done:
             self._record(tool_id, f"{tool.spec.name}: {', '.join(done)} ahead of the request")
         return done
+
+    async def _ram_for(self, tool_id: str) -> tuple[float, float]:
+        """(GB of RAM available, GB already held by this studio's own processes - that counts towards its need)."""
+        t = self.tools[tool_id]
+
+        def calc() -> tuple[float, float]:
+            own = 0
+            if t.running:
+                for p in psutil.process_iter(["pid", "memory_info"]):
+                    mi = p.info.get("memory_info")
+                    if mi and mi.rss > 512 * 2**20:
+                        try:
+                            if t.owns_pid(p.info["pid"]):
+                                own += mi.rss
+                        except Exception:
+                            pass
+            return psutil.virtual_memory().available / 2**30, own / 2**30
+        return await asyncio.get_running_loop().run_in_executor(None, calc)
 
     async def _usage_by_tool(self) -> dict[str, int]:
         """VRAM in MB held by each running studio, from nvidia-smi's per-process list."""

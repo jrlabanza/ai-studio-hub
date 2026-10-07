@@ -72,8 +72,19 @@ original fanart art concept pose poses detail details slider realistic photo gam
 
 
 def _is_character(l: dict) -> bool:
+    """Tagged as a character, named char_*, or titled after a series that has 3+ character LoRAs ("Aria (Zenless
+    Zone Zero) XL" - untagged character LoRAs are common on Civitai)."""
     tags = " ".join(l.get("tags") or []).lower()
-    return "character" in tags or bool(re.search(r"\bchar[-_ ]", l["name"].lower()))
+    if "character" in tags or re.search(r"\bchar[-_ ]", l["name"].lower()):
+        return True
+    strong = {w for w in SERIES if w not in NOT_SERIES and not w.isdigit() and not re.fullmatch(r"(sd|v|ep?)\d+|\d+(st|nd|rd|th)", w)}
+    return bool(strong & set(_words(f"{l.get('title') or ''} {l['name']}")))
+
+
+# words that recur in LoRA names without naming a series (base models, file-name habits, common words)
+NOT_SERIES = set("""illustrious illustriousxl pony ponyxl noob noobai sdxl xl sd15 lora loras locon lycoris char character
+characters outfit outfits costume epoch all one blue red black white pink style concept pose v1 v2 v3 ill nai anime
+nochekaiser""".split())
 
 
 SERIES: set[str] = set()      # words shared by 3+ character LoRAs (genshin, impact, zzz...): a series, not a character
@@ -88,10 +99,16 @@ def _series_words(loras: list[dict]) -> set[str]:
     return {w for w, n in c.items() if n >= 3}
 
 
+COLOURS = set("""white black silver grey gray blue red green pink purple violet yellow orange brown golden gold blonde
+cyan teal azure crimson scarlet navy dark light bright neon""".split())
+
+
 def _char_match(l: dict, request: str) -> int:
     """How many distinctive words of the character's own name the request contains (0 = not named)."""
     q = set(_words(request))
-    special = set(_words(f"{l.get('title') or ''} {l['name']} {(l.get('triggers') or [''])[0]}")) - GENERIC - SERIES
+    trig = (l.get("triggers") or [""])[0].split(",")[0]      # the trigger word itself, not the tag list after it
+    own = re.split(r"\s[-|]\s|[(（\[]", l.get("title") or "")[0]     # "Hotaru Futaba (Fatal Fury: City of...)" -> the name
+    special = set(_words(f"{own} {l['name']} {trig}")) - GENERIC - SERIES - COLOURS
     return len(q & {w for w in special if len(w) >= 4})
 
 
@@ -134,6 +151,7 @@ def _size(ck: dict, orientation: str) -> tuple[int, int]:
 
 
 DEFAULT_ANIME = ("illustrious", "animagine", "pony", "anima")
+ILLUSTRATED_FAMILY = {"illustrious": True, "animagine": True}      # families that draw flat anime by default
 DEFAULT_PHOTO = ("sdxl", "sd15_photo", "nl")
 
 
@@ -163,8 +181,12 @@ def _fallback_checkpoint(inv: dict, request: str) -> dict:
     return inv["checkpoints"][0]
 
 
-async def plan(port: int, request: str, history: list[dict], prev: dict | None, device: str) -> tuple[dict, dict]:
-    """The plan for `request` (with the conversation so far and the previous plan, for changes)."""
+async def plan(port: int, request: str, history: list[dict], prev: dict | None, device: str,
+               prefer: str | None = None, only_named: str | None = None) -> tuple[dict, dict]:
+    """The plan for `request` (with the conversation so far and the previous plan, for changes).
+
+    prefer="anime" pins the default anime checkpoint (Auto productions: the key frame must match the look);
+    only_named=<the user's own words> keeps only LoRAs of characters named there (no loosely matched concept LoRAs)."""
     inv = await inventory(port)
     SERIES.clear()
     SERIES.update(_series_words(inv["loras"]))
@@ -177,8 +199,9 @@ async def plan(port: int, request: str, history: list[dict], prev: dict | None, 
                     f"LoRAs {[l['name'] for l in prev['loras']]}, prompt: {prev['prompt_core']}")
     t0 = time.time()
     # a character the user named and has a LoRA for decides which checkpoint families are possible
-    named = sorted((l for l in inv["loras"] if _is_character(l) and _char_match(l, request + " " + convo)),
-                   key=lambda l: -_char_match(l, request + " " + convo))
+    names_in = only_named if only_named is not None else request + " " + convo
+    named = sorted((l for l in inv["loras"] if _is_character(l) and _char_match(l, names_in)),
+                   key=lambda l: -_char_match(l, names_in))
     hint = ""
     if named:
         top = named[0]
@@ -206,6 +229,11 @@ async def plan(port: int, request: str, history: list[dict], prev: dict | None, 
         default_anime, _ = _defaults(inv)
         if default_anime and default_anime != ck["name"]:
             notes.append(f"anime → {default_anime} (write \"Anima\" or \"Animagine\" to use those)")
+            ck = by_name[default_anime]
+    if prefer == "anime":
+        default_anime, _ = _defaults(inv)
+        if default_anime and ck["name"] != default_anime and not ILLUSTRATED_FAMILY.get(ck["family"]):
+            notes.append(f"{default_anime}: the default anime checkpoint suits this look")
             ck = by_name[default_anime]
     if named and not _compatible(named[0], ck["family"]):
         fits = [c for c in inv["checkpoints"] if _compatible(named[0], c["family"])]
@@ -242,10 +270,13 @@ async def plan(port: int, request: str, history: list[dict], prev: dict | None, 
         if _is_character(l) and not _names_character(l, request + " " + convo):
             notes.append(f"skipped character LoRA '{l['title']}' - you did not name that character")
             continue
+        if only_named is not None and not (_is_character(l) and _names_character(l, only_named)):
+            continue
         weight = max(0.2, min(1.2, float(item.get("weight") or 0.8)))
         loras.append({"name": l["name"], "title": l["title"], "weight": round(weight, 2), "why": str(item.get("why", ""))[:160],
                       "triggers": l["triggers"][:1]})
     prompt_core = " ".join(str(w.get("prompt") or request).split())
+    prompt_core = re.sub(r"<lora:[^>]*>\s*,?\s*", "", prompt_core)      # LoRAs go in by name; final_prompt adds the tags
     # instruction words that a small model sometimes copies into the prompt
     junk = re.compile(r"(^|,)\s*(danbooru tags?|@artist(?: name)?|trigger words?|quality tags?|masterpiece|best quality)\s*(?=,|$)", re.I)
     prompt_core = junk.sub(r"\1", prompt_core)

@@ -1,6 +1,7 @@
 """/api/assistant/*: plan from a request, render a plan, settings, and the rendered files."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -9,10 +10,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..config import load_settings, save_settings
-from . import forge, image, music, runtime, video, voice
+from . import director, forge, image, music, runtime, video, voice
 
 SESSIONS: dict[str, dict] = {}
-STUDIOS = {"forge": {"name": "Forge", "ready": True},
+TASKS: dict[str, asyncio.Task] = {}
+STUDIOS = {"auto": {"name": "Auto", "ready": True}, "forge": {"name": "Forge", "ready": True},
            "video": {"name": "Video Studio", "ready": True}, "image": {"name": "Image Studio", "ready": True},
            "music": {"name": "Music Studio", "ready": True}, "tts": {"name": "Voice Studio", "ready": True}}
 
@@ -25,6 +27,12 @@ def _load(sid: str) -> dict | None:
     try:
         s = json.loads(f.read_text("utf-8"))
         s["progress"] = None
+        prod = s.get("plan") if (s.get("plan") or {}).get("studio") == "production" else None
+        if prod and prod.get("status") == "running":           # the hub restarted mid-run: that step can be retried
+            for st in prod["steps"]:
+                if st["status"] == "running":
+                    st.update(status="failed", error="interrupted - the hub restarted", progress=None)
+            prod["status"] = "failed"
         SESSIONS[sid] = s
         return s
     except Exception:
@@ -70,6 +78,9 @@ def register(app: FastAPI, hub) -> None:
             raise HTTPException(400, f"{studio} has no hub entrance")
         return p
 
+    def ports() -> dict:
+        return {**{k: hub.proxy_ports.get(k) for k in ("forge", "image", "music", "video", "tts")}, "hub": load_settings().hub_port}
+
     async def choose_device(override: str | None) -> tuple[str, list[str]]:
         """Auto: plan on the GPU - if a studio is only holding it (loaded but idle), the hub unloads it first and the
         studio reloads for the render; if a studio is rendering, plan on the CPU instead of disturbing it."""
@@ -110,11 +121,27 @@ def register(app: FastAPI, hub) -> None:
         if not text:
             raise HTTPException(400, "say what to make")
         s = _session(body.get("session"), studio)
-        s["studio"] = studio
-        prev = s["plan"] if (s["plan"] or {}).get("studio") == studio else None
+        routed = None
         try:
             await runtime.ensure_running(load_settings().assistant_model)
             device, freed = await choose_device(body.get("device"))
+            if studio == "auto":
+                current = (s.get("plan") or {}).get("studio")
+                kind, studio, reason, _info = await director.route(text, s["history"], None if current == "production" else current, device)
+                routed = {"kind": kind, "studio": "production" if kind == "production" else studio,
+                          "name": "Production" if kind == "production" else STUDIOS[studio]["name"], "reason": reason}
+                if kind == "production":
+                    if (s.get("plan") or {}).get("status") == "running":
+                        raise HTTPException(409, "a production is running in this conversation - start a new one")
+                    p, timing = await director.plan(ports(), text, s["history"], device)
+                    timing["freed"] = freed
+                    s["studio"] = "auto"
+                    s["history"] += [{"role": "user", "text": text}, {"role": "assistant", "text": p["summary"] or "a production plan"}]
+                    s["plan"] = p
+                    _save(s)
+                    return JSONResponse({"session": s["id"], "plan": p, "timing": timing, "routed": routed})
+            s["studio"] = studio
+            prev = s["plan"] if (s["plan"] or {}).get("studio") == studio else None
             if studio == "video":
                 p, timing = await video.plan(port(studio), text, s["history"], prev, device, _last_image(s),
                                              force_engine=body.get("engine"))
@@ -135,7 +162,7 @@ def register(app: FastAPI, hub) -> None:
         s["history"].append({"role": "assistant", "text": p["summary"] or f"a {STUDIOS[studio]['name']} plan"})
         s["plan"] = p
         _save(s)
-        return JSONResponse({"session": s["id"], "plan": p, "timing": timing,
+        return JSONResponse({"session": s["id"], "plan": p, "timing": timing, "routed": routed,
                              "final_prompt": forge.final_prompt(p) if studio == "forge" else p.get("prompt", "")})
 
     @app.post("/api/assistant/render")
@@ -179,3 +206,63 @@ def register(app: FastAPI, hub) -> None:
         if "/" in name or ".." in name or not f.is_file():
             raise HTTPException(404, "not found")
         return FileResponse(f)
+
+    # ---------------------------------------------------------------------------------------------- productions
+    def _prod(sid: str) -> tuple[dict, dict]:
+        s = SESSIONS.get(sid or "") or _load(sid or "")
+        if not s or (s.get("plan") or {}).get("studio") != "production":
+            raise HTTPException(400, "plan a production first")
+        return s, s["plan"]
+
+    def _launch(s: dict, prod: dict) -> None:
+        t = TASKS.get(s["id"])
+        if t and not t.done():
+            raise HTTPException(409, "this production is already running")
+
+        async def go():
+            await director.run(prod, s["id"], ports(), choose_device, lambda: _save(s))
+            for st in prod["steps"]:                     # the key frame counts as this conversation's last image
+                if st["id"] == "keyframe" and st.get("result") and not any(r.get("step") == "keyframe" and r.get("images") == st["result"]["images"] for r in s["renders"]):
+                    s["renders"].append({**st["result"], "plan": st["plan"], "step": "keyframe", "at": time.time()})
+            _save(s)
+        prod["status"] = "running"
+        TASKS[s["id"]] = asyncio.create_task(go())
+
+    def _merge(prod: dict, edited: dict | None) -> None:
+        """The plan as edited in the panel: step plans, the video's length / window / shots, auto."""
+        if not edited:
+            return
+        if "auto" in edited:
+            prod["auto"] = bool(edited["auto"])
+        for st in prod["steps"]:
+            e = (edited.get("steps") or {}).get(st["id"])
+            if e and st["status"] != "done":
+                st["plan"] = {**st["plan"], **e}
+
+    @app.post("/api/assistant/production/start")
+    async def production_start(req: Request) -> JSONResponse:
+        body = await req.json()
+        s, prod = _prod(body.get("session"))
+        _merge(prod, body.get("plan"))
+        _launch(s, prod)
+        _save(s)
+        return JSONResponse({"session": s["id"], "plan": prod})
+
+    @app.post("/api/assistant/production/redo")
+    async def production_redo(req: Request) -> JSONResponse:
+        body = await req.json()
+        s, prod = _prod(body.get("session"))
+        if prod.get("status") == "running":
+            raise HTTPException(409, "wait for the running step to finish")
+        if body.get("step") not in [st["id"] for st in prod["steps"]]:
+            raise HTTPException(400, "unknown step")
+        _merge(prod, body.get("plan"))
+        director.reset_from(prod, body["step"])
+        _launch(s, prod)
+        _save(s)
+        return JSONResponse({"session": s["id"], "plan": prod})
+
+    @app.get("/api/assistant/production/{sid}")
+    async def production_state(sid: str) -> JSONResponse:
+        s, prod = _prod(sid)
+        return JSONResponse({"session": s["id"], "plan": prod})

@@ -496,3 +496,26 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .tool-head { flex-wrap: wrap; row-gap: 4px; }
 .tool-head .tool-name { white-space: nowrap; }
 .tool-head .pill { white-space: nowrap; flex: none; }
+
+/* ---------------------------------------------------------------- assistant: productions (Auto) */
+.as-route { font-size: 12px; font-weight: 700; color: var(--teal); margin-bottom: 4px; }
+.as-prod-title { font-size: 22px; line-height: 1.15; margin: 6px 0 2px; }
+.as-steps { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.as-step { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
+.as-step.running { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
+.as-step.waiting { border-color: var(--warn); }
+.as-step.failed { border-color: var(--danger); }
+.as-step-head { display: flex; align-items: center; gap: 8px; }
+.as-step-head .pill { margin-left: auto; }
+.as-step-n { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; background: var(--accent-soft); color: var(--accent); flex: none; }
+.as-step.done .as-step-n { background: var(--teal-soft); color: var(--teal); }
+.as-step textarea, .as-step input, .as-step select { width: 100%; }
+.as-step textarea:disabled, .as-step input:disabled, .as-step select:disabled { opacity: .75; }
+.as-step img, .as-step video { width: 100%; border-radius: 8px; display: block; border: 1px solid var(--line); background: #000; }
+.as-step audio { width: 100%; }
+.as-shots { display: flex; flex-direction: column; gap: 4px; }
+.as-shot summary { cursor: pointer; font-size: 12.5px; padding: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-shot textarea { font-family: var(--mono); font-size: 11.5px; }
+.as-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.as-f select, .as-step select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; min-width: 0; }
+.as-step .as-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }

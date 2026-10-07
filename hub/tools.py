@@ -190,6 +190,7 @@ class ToolSpec:
     claim_exclude_suffixes: tuple[str, ...] = ()
     python_rel = ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python"
     idle_context_mb = 400          # VRAM a running-but-unloaded process still holds (CUDA context)
+    ram_need_gb = 0.0              # system RAM a job needs (0 = not checked); idle studios are stopped to make room
     editable_sources: dict[str, str] = {}   # package -> source folder (relative) installed with pip -e
     checkout_markers: tuple[str, ...] = ()  # files that identify a checkout of this tool's repository
     # Linux packaging: every studio ships linux/compose.yml with one service (its ``ai.tool`` label)
@@ -632,6 +633,10 @@ class VideoTool(ToolSpec):
     port_regex = r"Lumen Video Studio -> http://[\w.\-]+:(\d+)"
     claim_routes = ((POST, "/api/generate"), (POST, "/api/engine/start"), (POST, "/api/engine/restart"))
     idle_context_mb = 0             # the backend never touches CUDA; only its (separate) engine process does
+    # MiniMax H3 on an 8 GB card offloads most of the model: its engine held 18.2 GB RSS plus 9.3 GB of pinned
+    # shared memory in a storyboard render (2026-10-07); with idle Forge + Music Studio alive the kernel OOM-killed it.
+    # The finished render peaked at 36.4 of 38.4 GB used with every other studio stopped (desktop included).
+    ram_need_gb = 32.0
     checkout_markers = ("backend/run.py",)
     docker_service = "video"
     docker_port = 8765

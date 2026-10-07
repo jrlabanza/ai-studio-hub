@@ -267,5 +267,32 @@ checkpoint family's format - you check or edit the plan, and Forge renders it. A
   * *Voice Studio* (Qwen3-TTS): a cast and a script - each voice designed from your words ("a calm British narrator"),
     a built-in speaker only when you name one, or a saved voice; stage directions such as *yawns* are removed, a
     requested accent is kept and an invented one dropped. Measured: one line in 18 s, a 6-line two-voice dialogue in 27 s.
+* **Auto (the default chip) - the assistant picks the studio.** Clear words route in code (a song -> Music Studio,
+  "say/narrate" -> Voice Studio, a clip -> Video Studio, a poster / logo / text / edit -> Image Studio, any other
+  picture -> Forge; a follow-up stays with the current studio); only an unclear request is put to the planner model.
+  The plan's first line says where it went and why.
+* **Productions (Auto): "an anime opening", "a music video about ...", "a video with its own song".** One request
+  becomes three steps that run in order in the background, one studio on the GPU at a time:
+  1. **Key frame** - Forge (default anime checkpoint) for anime / illustrated looks, Image Studio otherwise. Only
+     LoRAs of characters you name are used.
+  2. **Song** - Music Studio; an anime opening defaults to an energetic J-pop / J-rock theme, about a minute long.
+  3. **Video** - planned once the song exists: Music Studio's karaoke sync times the lyrics, the window is the first
+     chorus (or the first sung line / the start), it is cut into shots along the lyric lines (2-7.5 s each), the
+     planner writes each shot's action and the code builds MiniMax H3's trained layout: shot 1 opens on the key frame
+     (image to video), shots with the character use it as `<Picture 1>` (reference generation) so it stays the same
+     character, scenery shots are text to video. The song is the soundtrack, cut to the window, with its timed lyrics.
+
+  It stops for your OK after the key frame, after the song and after the shots are written (read or edit each shot's
+  prompt), unless *Run without stopping* is ticked. Every step has *Re-roll* (the steps after it are redone too); a
+  failed step can be retried; the page shows the running production again when you come back, and a hub restart marks
+  the interrupted step as retryable. Measured on the 8 GB RTX 3070 laptop ("i want to create an anime opening"): plan
+  16-40 s on the GPU; key frame 47 s; a 62.8 s song 72 s; lyric timing and 5 shots 24 s; the 31.5 s, 5-shot MiniMax H3 storyboard (736x544, *fast*, turbo) 1257 s - about 23 minutes from request to
+  video. The soundtrack check matched the song at 0.995.
+* **RAM is part of the GPU hand-over.** An idle studio that was only unloaded keeps its process and often its model in
+  RAM; MiniMax H3 needs about 18 GB RSS plus about 9 GB of pinned memory, and with idle Forge + Music Studio alive the
+  kernel's OOM killer stopped the render (the earlier "Cannot connect to host 127.0.0.1:8188" storyboard failures).
+  A studio can declare `ram_need_gb` (Video Studio: 32 - the finished render peaked at 36.4 of 38.4 GB used with
+  every other studio stopped); before it gets the GPU the hub stops idle, unpinned studios,
+  least recently used first, until the RAM fits.
 * **Skills are the assistant's only.** The studios' own pages and their built-in helpers (Forge's ModelProfile and
   prompt enhancer, Video Studio's Enhance, Music Studio's lyric writer) do not read them.

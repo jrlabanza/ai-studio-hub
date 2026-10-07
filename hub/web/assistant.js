@@ -4,7 +4,7 @@
   const $ = (q, el = document) => el.querySelector(q);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const store = { get: (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private window */ } } };
-  const A = { session: null, studio: "forge", plan: null, msgs: [], busy: false, state: null, inv: null,
+  const A = { session: null, studio: store.get("as.studio", "auto"), plan: null, msgs: [], busy: false, state: null, inv: null,
               engine: store.get("as.engine", "auto"), lastText: "" };
   const ENGINES = { auto: "Auto", h3: "MiniMax H3", ltx25: "LTX-2.5" };
 
@@ -51,8 +51,9 @@
     const st = A.state; if (!st) return;
     $("#asStudios").innerHTML = Object.entries(st.studios).map(([id, s]) =>
       `<button class="chip filter ${id === A.studio ? "active" : ""}" data-id="${id}" ${s.ready ? "" : "disabled title='Coming in phase 2'"}>${esc(s.name)}${s.ready ? "" : " · soon"}</button>`).join("");
-    $("#asStudios").querySelectorAll("button[data-id]").forEach((b) => b.onclick = () => { if (!b.disabled) { A.studio = b.dataset.id; renderStudios(); } });
+    $("#asStudios").querySelectorAll("button[data-id]").forEach((b) => b.onclick = () => { if (!b.disabled) { A.studio = b.dataset.id; store.set("as.studio", A.studio); renderStudios(); } });
     $("#asText").placeholder = {
+      auto: "Say what to make - a picture, a song, a voice line, a clip, or a whole music video / anime opening (Enter to plan)",
       video: "Describe the clip… or \"animate it\" to bring the last image to life (Enter to plan)",
       image: "Describe the image, a poster or a logo… or \"edit it: …\" to change the last image (Enter to plan)",
       music: "Describe the song: what it is about, the genre, the language, the mood… (Enter to plan)",
@@ -62,7 +63,7 @@
     $("#asDevice").innerHTML = `<label title="Where the assistant's language model thinks. Auto: the GPU when it is free (an idle studio is unloaded first), the CPU while a studio is rendering. It is always unloaded before a render.">Planner: <select id="asDev">
       ${["auto", "gpu", "cpu"].map((d) => `<option value="${d}" ${d === st.device ? "selected" : ""}>${d === "auto" ? "Auto" : d.toUpperCase()}</option>`).join("")}</select></label>
       <span class="as-model">${esc(st.model)} · ${dev}</span>
-      ${A.studio === "video" ? `<label title="Which video engine to plan for. Auto: MiniMax H3 for talking, singing, acting and anime; LTX-2.5 for cinematic footage and clips over 15 s.">Engine: <select id="asEng">
+      ${A.studio === "video" || A.studio === "auto" ? `<label title="Which video engine to plan for. Auto: MiniMax H3 for talking, singing, acting and anime; LTX-2.5 for cinematic footage and clips over 15 s.">Engine: <select id="asEng">
         ${Object.entries(ENGINES).map(([k, n]) => `<option value="${k}" ${k === A.engine ? "selected" : ""}>${n}</option>`).join("")}</select></label>` : ""}`;
     $("#asDev").onchange = async (e) => { A.state = await api("/api/assistant/settings", { device: e.target.value }, "PUT"); renderStudios(); };
     if ($("#asEng")) $("#asEng").onchange = (e) => { A.engine = e.target.value; store.set("as.engine", A.engine); };
@@ -86,7 +87,7 @@
     ta.value = "";
     addMsg("user", esc(text));
     A.lastText = text;
-    await planFor(text, A.studio === "video" && A.engine !== "auto" ? A.engine : null);
+    await planFor(text, (A.studio === "video" || A.studio === "auto") && A.engine !== "auto" ? A.engine : null);
   }
 
   async function planFor(text, engine) {
@@ -95,15 +96,17 @@
     A.busy = true; $("#asSend").disabled = true;
     try {
       const d = await api("/api/assistant/plan", { studio: A.studio, message: text, session: A.session, ...(engine ? { engine } : {}) });
-      A.session = d.session; A.plan = d.plan;
+      A.session = d.session; A.plan = d.plan; store.set("as.session", d.session);
       const t = d.timing;
       const P = d.plan;
-      const what = P.studio === "video" ? `${esc(P.engine_name)} · ${P.mode === "i2v" ? "image to video" : "text to video"} · ${P.seconds} s · ${esc(P.aspect)}`
+      const routed = d.routed ? `<div class="as-route">→ ${esc(d.routed.name)}${d.routed.reason ? ` - ${esc(d.routed.reason)}` : ""}</div>` : "";
+      const what = P.studio === "production" ? `${P.steps.map((st) => esc(st.title)).join(" → ")} · ${P.steps[2].plan.seconds} s video`
+        : P.studio === "video" ? `${esc(P.engine_name)} · ${P.mode === "i2v" ? "image to video" : "text to video"} · ${P.seconds} s · ${esc(P.aspect)}`
         : P.studio === "image" ? `Qwen-Image · ${{ t2i: "text to image", edit: "edit", rgba: "transparent" }[P.mode]} · ${esc(P.aspect)} · ${P.count} image${P.count > 1 ? "s" : ""}`
         : P.studio === "music" ? `YuE2 · "${esc(P.title)}"${P.instrumental ? " · instrumental" : ""}`
         : P.studio === "tts" ? `Qwen3-TTS · ${P.cast.length} voice${P.cast.length > 1 ? "s" : ""} · ${P.lines.length} line${P.lines.length > 1 ? "s" : ""}`
         : `${esc(P.checkpoint)} · ${P.loras.length} LoRA${P.loras.length === 1 ? "" : "s"}`;
-      wait.innerHTML = `${esc(d.plan.summary || "Here is the plan.")}<div class="as-meta">${what} · planned in ${t.seconds}s on the ${t.device.toUpperCase()}${(t.freed || []).length ? ` (${esc(t.freed.join(", "))})` : ""}</div>` +
+      wait.innerHTML = `${routed}${esc(d.plan.summary || "Here is the plan.")}<div class="as-meta">${what} · planned in ${t.seconds}s on the ${t.device.toUpperCase()}${(t.freed || []).length ? ` (${esc(t.freed.join(", "))})` : ""}</div>` +
         (d.plan.notes || []).map((n) => `<div class="as-note">${esc(n)}</div>`).join("");
       renderPlan();
     } catch (e) {
@@ -115,6 +118,7 @@
   }
 
   function renderPlan() {
+    if (A.plan && A.plan.studio === "production") return renderProduction();
     if (A.plan && A.plan.studio === "video") return renderVideoPlan();
     if (A.plan && A.plan.studio === "image") return renderImagePlan();
     if (A.plan && A.plan.studio === "music") return renderMusicPlan();
@@ -306,10 +310,128 @@
     }
   }
 
+  // ------------------------------------------------------------------------------------------------ productions
+  const STEP_STATE = { pending: "Not started", running: "Running", waiting: "Waiting for your OK", done: "Done", failed: "Failed" };
+  const PIC_NAME = { forge: "Forge", image: "Image Studio" };
+
+  function stepBody(st, P) {
+    const p = st.plan, open = st.status === "pending" || st.status === "failed" || (st.id === "video" && st.status === "waiting");
+    const ro = open ? "" : "disabled";
+    if (st.id === "keyframe") {
+      const field = st.studio === "forge" ? "prompt_core" : "prompt";
+      return `<div class="as-dim">${esc(PIC_NAME[st.studio])}${st.studio === "forge" ? ` · ${esc(p.checkpoint)}${p.loras.length ? ` · ${p.loras.length} LoRA${p.loras.length > 1 ? "s" : ""}` : ""}` : " · Qwen-Image"} · ${st.studio === "forge" ? `${p.width}×${p.height}` : esc(p.aspect)}</div>
+        <label class="as-f"><span>Picture prompt</span><textarea data-k="keyframe.${field}" rows="4" ${ro}>${esc(p[field])}</textarea></label>
+        ${st.result ? `<a href="${esc(st.result.images[0])}" target="_blank" class="as-img"><img src="${esc(st.result.images[0])}" alt=""></a>` : ""}`;
+    }
+    if (st.id === "song") {
+      return `<div class="as-grid"><label class="as-f"><span>Title</span><input data-k="song.title" value="${esc(p.title)}" ${ro}></label></div>
+        <label class="as-f"><span>Style</span><textarea data-k="song.style" rows="2" ${ro}>${esc(p.style)}</textarea></label>
+        <details class="as-more" ${open && st.status !== "pending" ? "open" : ""}><summary>Lyrics</summary><textarea data-k="song.lyrics" rows="12" ${ro}>${esc(p.lyrics)}</textarea></details>
+        ${st.result ? `<audio src="${esc(st.result.audios[0])}" controls preload="metadata"></audio>` : ""}`;
+    }
+    const shots = p.shots || [];
+    return `<div class="as-grid">
+        <label class="as-f"><span>Seconds</span><input data-k="video.seconds" type="number" min="10" max="60" step="1" value="${p.seconds}" ${shots.length || !open ? "disabled" : ""}></label>
+        <label class="as-f"><span>Part of the song</span><select data-k="video.window" ${shots.length || !open ? "disabled" : ""}>${[["chorus", "First chorus"], ["vocals", "First sung line"], ["start", "From the start"]].map(([k, n]) => `<option value="${k}" ${k === p.window ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        <label class="as-f"><span>Size</span><select data-k="video.size" ${ro}>${["fast", "medium", "native"].map((z) => `<option ${z === p.size ? "selected" : ""}>${z}</option>`).join("")}</select></label>
+      </div>
+      ${shots.length ? `<div class="as-shots">${shots.map((sh, i) => `<details class="as-shot"><summary><b>Shot ${i + 1}</b> · ${sh.seconds.toFixed(1)} s · ${sh.first ? "opens on the key frame" : sh.cast.length ? "with the character" : "scenery"}${sh.lyrics ? ` · <i>${esc(sh.lyrics)}</i>` : ""}</summary>
+          <textarea data-shot="${i}" rows="8" ${ro}>${esc(sh.prompt)}</textarea></details>`).join("")}</div>`
+        : `<div class="as-dim">The shots are written after the song exists - they follow its timed lyrics.</div>`}
+      ${st.result ? `<video src="${esc(st.result.videos[0])}" controls playsinline></video><div class="as-dim">${esc(st.result.info || "")}</div>` : ""}`;
+  }
+
+  function renderProduction() {
+    const P = A.plan; const box = $("#asPlan");
+    const busy = P.status === "running";
+    const next = P.steps.find((st) => st.status !== "done");
+    const label = P.status === "planned" ? "Start" : P.status === "failed" ? `Retry ${next ? next.title.toLowerCase() : ""}` : P.status === "waiting" ? `Continue to ${next ? next.title.toLowerCase() : "the end"}` : "Done";
+    const waitingVideo = next && next.id === "video" && next.status === "waiting";
+    box.innerHTML = `
+      <div class="as-plan-head"><span class="eyebrow">Plan · Production</span><span class="badge">Music video</span></div>
+      <div class="as-prod-title serif">${esc(P.title)}</div>
+      <div class="as-dim">${esc(P.look)}${P.character ? ` · ${esc(P.character)}` : ""}</div>
+      <div class="as-steps">${P.steps.map((st, i) => `
+        <section class="as-step ${st.status}" data-step="${st.id}">
+          <div class="as-step-head"><span class="as-step-n">${i + 1}</span><b>${esc(st.title)}</b>
+            <span class="pill ${st.status === "done" ? "ready" : st.status === "running" ? "busy" : st.status === "failed" ? "error" : st.status === "waiting" ? "warn" : ""}">${STEP_STATE[st.status] || st.status}</span>
+            ${(st.status === "done" || st.status === "failed") && !busy ? `<button class="btn small ghost" data-redo="${st.id}" title="Make this step again - the steps after it are redone too">Re-roll</button>` : ""}</div>
+          ${st.status === "running" ? `<div class="as-dim"><span class="spinner"></span> ${esc((st.progress && st.progress.stage) || "working…")}${st.progress && st.progress.progress ? ` ${Math.round(st.progress.progress * 100)}%` : ""}</div>` : ""}
+          ${st.error ? `<div class="as-err">${esc(st.error)}</div>` : ""}
+          ${stepBody(st, P)}
+        </section>`).join("")}</div>
+      <div class="as-actions">
+        ${P.status !== "done" ? `<button class="btn primary" id="prGo" ${busy ? "disabled" : ""}>${busy ? "Running…" : esc(waitingVideo ? "Render the video" : label)}</button>` : ""}
+        <label class="as-auto" title="Off: it stops after the key frame, after the song and after writing the shots, so you can check or re-roll them. On: it runs straight through."><input type="checkbox" id="prAuto" ${P.auto ? "checked" : ""} ${busy ? "disabled" : ""}> Run without stopping</label>
+      </div>`;
+    if ($("#prGo")) $("#prGo").onclick = () => prodCall("/api/assistant/production/start");
+    box.querySelectorAll("[data-redo]").forEach((b) => b.onclick = () => prodCall("/api/assistant/production/redo", b.dataset.redo));
+    if (busy) pollProduction();
+  }
+
+  function collectProduction() {
+    const P = A.plan, edits = { auto: $("#prAuto") ? $("#prAuto").checked : P.auto, steps: {} };
+    $("#asPlan").querySelectorAll("[data-k]").forEach((el) => {
+      if (el.disabled) return;
+      const [step, key] = el.dataset.k.split(".");
+      const v = el.type === "number" ? parseFloat(el.value) : el.value;
+      (edits.steps[step] = edits.steps[step] || {})[key] = v;
+      P.steps.find((st) => st.id === step).plan[key] = v;
+    });
+    const vid = P.steps.find((st) => st.id === "video");
+    if (vid.plan.shots) {
+      $("#asPlan").querySelectorAll("[data-shot]").forEach((el) => { if (!el.disabled) vid.plan.shots[+el.dataset.shot].prompt = el.value; });
+      (edits.steps.video = edits.steps.video || {}).shots = vid.plan.shots;
+    }
+    P.auto = edits.auto;
+    return edits;
+  }
+
+  async function prodCall(path, step) {
+    const edits = collectProduction();
+    try {
+      const d = await api(path, { session: A.session, plan: edits, ...(step ? { step } : {}) });
+      A.plan = d.plan; renderProduction();
+      addMsg("assistant", step ? `Making the ${esc(step)} again…` : "Running - each step shows its progress on the right.");
+    } catch (e) { addMsg("assistant", `<span class="as-err">${esc(e.message)}</span>`); }
+  }
+
+  let polling = null;
+  function pollProduction() {
+    if (polling) return;
+    polling = setInterval(async () => {
+      try {
+        const d = await api(`/api/assistant/production/${A.session}`);
+        const before = JSON.stringify(A.plan.steps.map((st) => [st.status, st.progress && st.progress.stage, st.progress && Math.round((st.progress.progress || 0) * 100)]));
+        const after = JSON.stringify(d.plan.steps.map((st) => [st.status, st.progress && st.progress.stage, st.progress && Math.round((st.progress.progress || 0) * 100)]));
+        if (d.plan.status !== "running") { clearInterval(polling); polling = null; }
+        if (before !== after || d.plan.status !== A.plan.status) {
+          const was = A.plan.steps.map((st) => st.status);
+          A.plan = d.plan; renderProduction();
+          d.plan.steps.forEach((st, i) => {
+            if (st.status === was[i]) return;
+            if (st.status === "done") addMsg("assistant", `${esc(st.title)} is done${st.result && st.result.seconds ? ` in ${Math.round(st.result.seconds)}s` : ""}.${d.plan.status === "waiting" ? " Check it on the right, then Continue - or Re-roll it." : ""}`);
+            if (st.status === "waiting") addMsg("assistant", "The shots are written - read or edit them on the right, then Render the video.");
+            if (st.status === "failed") addMsg("assistant", `<span class="as-err">${esc(st.title)} failed: ${esc(st.error || "")}</span>`);
+          });
+          if (d.plan.status === "done") addMsg("assistant", "The music video is ready - it is in Video Studio's History too.");
+        }
+      } catch (e) { /* hub restarting - keep polling */ }
+    }, 3000);
+  }
+
   window.Assistant = {
     async show() {
       shell();
       try { A.state = await api("/api/assistant/state"); renderStudios(); } catch (e) { /* hub restarting */ }
+      const last = store.get("as.session", "");
+      if (!A.session && last) {                // a production keeps running when the page is closed: show it again
+        try {
+          const d = await api(`/api/assistant/production/${last}`);
+          A.session = d.session; A.plan = d.plan; renderPlan();
+          addMsg("assistant", `Back to <b>${esc(d.plan.title)}</b> - ${{ running: "it is still running", waiting: "it is waiting for your OK", done: "it is finished", failed: "a step failed", planned: "it is planned" }[d.plan.status] || d.plan.status}.`);
+        } catch (e) { /* not a production, or gone */ }
+      }
       $("#asText").focus();
     },
   };
