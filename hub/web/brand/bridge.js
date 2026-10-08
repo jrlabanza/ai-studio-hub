@@ -93,6 +93,10 @@
           clearTimeout(slowTimer); pendingClaims--;
           if (r && r.status === 503) {
             r.clone().json().then(function (d) { showBanner((d && d.detail) || "The GPU could not be reserved", "warn", 9000); }).catch(function () { showBanner("The GPU could not be reserved", "warn", 9000); });
+          } else if (r && r.status >= 400 && r.status < 500) {
+            // The studio rejected the request (missing picture, wrong model for the mode, ...): say why, prominently.
+            var who = cfg.name || "The studio";
+            r.clone().json().then(function (d) { showBanner(who + " did not accept this: " + ((d && (d.detail || d.error)) || ("HTTP " + r.status)), "warn", 12000); }).catch(function () { showBanner(who + " did not accept this (HTTP " + r.status + ")", "warn", 12000); });
           } else if (pendingClaims <= 0) hideBanner();
         }, function () { clearTimeout(slowTimer); pendingClaims--; if (pendingClaims <= 0) hideBanner(); });
       }
@@ -106,7 +110,15 @@
     XMLHttpRequest.prototype.send = function () {
       if (this.__hubClaim) {
         var xhr = this, t = setTimeout(function () { showBanner("Making room on the GPU for " + (cfg.name || "this studio") + "…", "busy"); }, 900);
-        xhr.addEventListener("loadend", function () { clearTimeout(t); if (xhr.status === 503) showBanner("The GPU could not be reserved", "warn", 9000); else hideBanner(); });
+        xhr.addEventListener("loadend", function () {
+          clearTimeout(t);
+          if (xhr.status === 503) showBanner("The GPU could not be reserved", "warn", 9000);
+          else if (xhr.status >= 400 && xhr.status < 500) {
+            var why = "";
+            try { var d = JSON.parse(xhr.responseText); why = (d && (d.detail || d.error)) || ""; } catch (e) { /* not JSON */ }
+            showBanner((cfg.name || "The studio") + " did not accept this: " + (why || ("HTTP " + xhr.status)), "warn", 12000);
+          } else hideBanner();
+        });
       }
       return origSend.apply(this, arguments);
     };
