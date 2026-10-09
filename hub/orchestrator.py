@@ -146,7 +146,7 @@ class Orchestrator:
         """The hub's GPU queue, in order: the job holding the GPU, then every request waiting for its turn."""
         out: list[dict[str, Any]] = []
         running = next((t for t in self.tools.values() if t.running and self.summary(t.id).busy), None)
-        holder = (self.lease or {}).get("tool") or (running.id if running else None)
+        holder = self.lease_holder("") or (running.id if running else None)     # a finished lease is dropped here
         if holder and holder in self.tools:
             job = self.summary(holder).job or {}
             out.append({"tool": holder, "name": self.tools[holder].spec.name, "status": "running",
