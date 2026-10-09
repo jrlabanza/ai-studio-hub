@@ -223,11 +223,20 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
                                  "state": tool.state}, status_code=503, headers={"Retry-After": "3"})
 
         method = request.method.upper()
+        claimed = False
         if tool.spec.is_claim(method, "/" + path):
             res = await hub.orchestrator.claim(tool.id, reason=f"{method} /{path}")
             if not res.ok:
                 return JSONResponse({"detail": res.warning or "The GPU could not be reserved"}, status_code=503)
             await hub.orchestrator.before_forward(tool.id, method, "/" + path)
+            hub.orchestrator.inflight_begin(tool.id)     # the lease holds while the request itself is still running
+            claimed = True
+
+        def done() -> None:
+            nonlocal claimed
+            if claimed:
+                claimed = False
+                hub.orchestrator.inflight_end(tool.id)
 
         url = f"http://127.0.0.1:{tool.port}/{path}"
         if request.url.query:
@@ -241,11 +250,13 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
                                                 content=request.stream() if has_body else None)
             resp = await client.send(upstream_req, stream=True)
         except httpx.ConnectError:
+            done()
             if wants_html(request):
                 ensure_started()
                 return starting_page(request)
             return JSONResponse({"detail": f"{tool.spec.name} is not answering"}, status_code=502)
         except Exception as exc:
+            done()
             return JSONResponse({"detail": f"proxy error: {exc}"}, status_code=502)
 
         out_headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
@@ -253,6 +264,7 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
         if ctype.startswith("text/html") and resp.status_code == 200 and method == "GET":
             body = await resp.aread()
             await resp.aclose()
+            done()
             charset = "utf-8"
             m = re.search(r"charset=([\w\-]+)", ctype)
             if m:
@@ -273,9 +285,11 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
                     yield chunk
             finally:
                 await resp.aclose()
+                done()
 
         if method == "HEAD" or resp.status_code in (204, 304):
             await resp.aclose()
+            done()
             return Response(status_code=resp.status_code, headers=out_headers)
         return StreamingResponse(body_iter(), status_code=resp.status_code, headers=out_headers)
 

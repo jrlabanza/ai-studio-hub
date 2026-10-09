@@ -133,7 +133,8 @@ its own toggle that overrides the hub. Turn it off when RAM is short - pinned me
 
 Every request that needs the GPU (Generate, Enhance, Load model, Start engine, Sing, Transcribe, a Forge txt2img …) passes through the hub first. Before forwarding it the hub:
 
-1. **waits** if another studio is still rendering — no job is ever interrupted, your request is queued and starts by itself;
+1. **queues** it — requests from every studio and every browser wait in **one GPU queue**, first come first served, and
+   run one after another; no job is ever interrupted, and a model is switched only between jobs (details below);
 2. **unloads** the other studios' models (Qwen-Image, Qwen3-TTS + Whisper + Chatterbox, the ComfyUI engine, Forge's
    checkpoint);
 3. measures the free VRAM (`nvidia-smi`, `rocm-smi` or the Windows GPU counters); if the card is still too full it **stops** the other studios' processes (an idle
@@ -148,9 +149,27 @@ Two policies, chosen automatically from the card:
 | under 20 GB (8 / 12 / 16 GB) | **one model at a time** | strictly one studio holds the GPU; the others are unloaded and, if needed, stopped |
 | 20 GB and up | **share when it fits** | small models (a 1.7B TTS model, YuE2) may stay resident next to each other as long as the measured free memory allows |
 
+### The GPU queue
+
+Generate in Image Studio, then in Music Studio, then in Image Studio again: the second request waits until the first
+job has finished, then Image Studio's model is unloaded and Music Studio's loaded; the third waits for the song - also
+when several people use the hub at once. The studio a request was handed to keeps the GPU until its job has been seen
+running and has finished (a *lease*: status is polled every 2.5 s, so without it the next request could slip in before
+the first studio looked busy and unload its model under its own job). A request that never turns into a job lets the
+lease lapse after 8 s; a request that is still being answered (Forge's txt2img returns when the image is done) holds it.
+
+* The top bar shows **N waiting** while anything is queued; hover it for the order. A studio whose request is waiting
+  shows **Queued #N · starts after …** over its page. It runs on its own - you can leave the page.
+* A queued request waits as long as it takes (Settings → *Queued requests give up after*, 0 = no limit).
+* **Load ahead** is off: a model loads when a job reaches the front of the queue, not when you open a studio.
+
+Measured (8 GB RTX 3070 laptop): Forge txt2img sent at 0 s, a Music Studio song at 3 s, another Forge image at 6 s -
+Forge ran 0-22.7 s with the song queued #1 and the second image #2; Forge was unloaded only then, the song ran 25.9-74 s
+without interruption, and the second image got the GPU at 74.2 s, in its turn.
+
 Also built in:
 
-* **Load ahead** — a few seconds after you switch to a studio, its model is loaded and the previous one unloaded, so Generate is instant (Settings → Graphics card; off if you prefer).
+* **Load ahead** (off by default) — a few seconds after you switch to a studio its model is loaded, so its first Generate is instant when the GPU is free (Settings → Graphics card).
 * **Idle unload / idle stop** — models are unloaded after 8 minutes idle on an 8 GB card (15 / 30 on bigger ones) and idle studios are stopped later to free RAM. Pin a studio to keep it running.
 * **Free GPU** — unload everything at once (for a game, another app, or peace of mind).
 * Everything the hub does is listed under **Activity**: what was unloaded, stopped and how much memory came free.

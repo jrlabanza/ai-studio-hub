@@ -87,6 +87,8 @@
 
   function showView(view, tool) {
     S.view = view;
+    if (tool) S.tool = tool;
+    if (S.queue) setTimeout(() => renderQueue(S.queue), 0);
     $$(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
     $$(".nav-item").forEach((a) => {
       const active = a.dataset.view === view && (view !== "tool" || a.dataset.tool === tool);
@@ -185,6 +187,7 @@
     document.body.classList.remove("booting");
     renderTop();
     renderNav();
+    renderQueue((st.orchestrator || {}).queue || []);
     if (first && S.view === "tool" && S.tool && !S.frames[S.tool]) mountTool(S.tool);
     if (S.view === "home") renderHome();
     if (S.view === "tool") { const t = toolOf(S.tool); if (t) { $("#topTitle").textContent = t.name; $("#topSub").textContent = t.tagline; const num = $("#topNum"); num.textContent = t.number; num.style.setProperty("--tool", t.color); } }
@@ -388,6 +391,30 @@
     const lv = $("#logView"); lv.scrollTop = lv.scrollHeight;
   }
 
+  // ------------------------------------------------------------------ the GPU queue
+  // Generate requests from every studio wait in one queue in the hub and run one after another; a model is only
+  // switched between jobs. The chip lists the order; the studio you are looking at says where its request stands.
+  function renderQueue(q) {
+    S.queue = q;
+    const waiting = q.filter((e) => e.status === "waiting");
+    const chip = $("#chipQueue");
+    chip.hidden = !waiting.length;
+    if (waiting.length) {
+      $("#chipQueueNum").textContent = waiting.length;
+      $("#chipQueueText").textContent = "waiting";
+      chip.title = "GPU queue - runs in this order, one job at a time:\n" + q.map((e) => e.status === "running"
+        ? `▶ ${e.name}${e.title ? ` - ${e.title}` : ""}${e.percent != null ? ` (${Math.round(e.percent)}%)` : ""}`
+        : `${e.position}. ${e.name}`).join("\n");
+    }
+    const banner = $("#queueBanner");
+    const mine = S.view === "tool" ? waiting.find((e) => e.tool === S.tool) : null;
+    banner.hidden = !mine;
+    if (mine) {
+      const ahead = q.slice(0, q.indexOf(mine)).map((e) => e.status === "running" ? `${e.name} (running)` : e.name);
+      banner.innerHTML = `<span class="spinner"></span><span><b>Queued #${mine.position}</b> in the GPU queue · starts after ${esc(ahead.join(" → ") || "the current job")}. It runs on its own - you can leave this page.</span>`;
+    }
+  }
+
   // ------------------------------------------------------------------ activity
   function onEvent(ev) {
     if (!ev || ev.type === "state") return;
@@ -402,8 +429,10 @@
         const acts = (ev.actions || []).join(", ");
         toast(`GPU → ${ev.name}`, ev.warning ? "warn" : "ok", ev.warning || (acts ? `${acts}` : "nothing to unload"));
       } else toast("GPU freed", "ok", (ev.actions || []).join(", "));
+    } else if (ev.type === "queue") {
+      renderQueue(ev.queue || []);
     } else if (ev.type === "waiting") {
-      toast(`${nameOf(ev.tool)} is waiting for ${(ev.for || []).map(nameOf).join(", ")} to finish`, "warn", "Your request is queued and starts automatically.", 8000);
+      toast(`${nameOf(ev.tool)} is queued behind ${(ev.for || []).map(nameOf).join(", ")}`, "warn", "It starts automatically when the job ahead of it finishes.", 8000);
     } else if (ev.type === "tool") {
       const name = nameOf(ev.tool);
       if (ev.state === "error" && ev.error) toast(`${name}: ${ev.error.split("\n")[0]}`, "error", "", 9000);
@@ -546,11 +575,11 @@
   const SETTINGS_SCHEMA = [
     { title: "Graphics card", lead: "How the hub shares one GPU between your studios.", fields: [
       { key: "gpu_policy", label: "Sharing policy", type: "select", options: [["auto", "Automatic (recommended)"], ["exclusive", "One model at a time"], ["budget", "Share when it fits"]], help: "Automatic keeps one model at a time on cards under 20 GB and lets small models share on bigger cards." },
-      { key: "prepare_on_switch", label: "Load ahead when I switch studios", type: "bool", help: "A few seconds after you open a studio its model is loaded (and the others unloaded) so Generate is instant." },
+      { key: "prepare_on_switch", label: "Load ahead when I switch studios", type: "bool", help: "Off (recommended with the GPU queue): a model loads only when a job reaches the front of the queue, so opening a studio never unloads another. On: a few seconds after you open a studio its model is loaded, so its first Generate is instant - when the GPU is free." },
       { key: "prepare_delay_s", label: "Delay before loading ahead", type: "number", step: 0.5, min: 0.5, max: 60, unit: "s" },
       { key: "idle_unload_min", label: "Unload an idle model after", type: "number", step: 1, min: -1, max: 1440, unit: "min", help: "0 = automatic (8 min on 8 GB cards, longer on bigger ones), -1 = never." },
       { key: "idle_stop_min", label: "Stop an idle studio after", type: "number", step: 1, min: -1, max: 1440, unit: "min", help: "Frees the RAM and the CUDA context too. 0 = automatic, -1 = never. Pinned studios are never stopped." },
-      { key: "claim_wait_max_min", label: "Wait for a busy studio up to", type: "number", step: 1, min: 1, max: 600, unit: "min", help: "A request that needs the GPU waits this long for another studio's job before giving up." },
+      { key: "claim_wait_max_min", label: "Queued requests give up after", type: "number", step: 1, min: 0, max: 1440, unit: "min", help: "Generate requests from every studio wait in one queue and run one after another; a model is switched only between jobs. 0 = wait as long as it takes." },
       { key: "vram_headroom_gb", label: "VRAM headroom", type: "number", step: 0.1, min: 0, max: 8, unit: "GB", help: "Extra free memory the hub tries to keep for the desktop and the browser." },
       { key: "release_ollama", label: "Release Ollama models when VRAM is short", type: "bool", help: "Music Studio's lyric writer uses a local Ollama model, which stays resident for minutes." },
       { key: "pin_memory", label: "Pinned memory in the studios", type: "bool", help: "Page-locked RAM speeds up the CPU↔GPU weight transfers of offload modes. Applies the next time a studio starts; each studio can override it in its own settings. Turn off when RAM is short (studios default to off on AMD)." },
@@ -921,7 +950,7 @@
     S.es = es;
     es.onopen = () => { S.focusSent = undefined; sendFocus(S.view === "tool" ? S.tool : null); };
     es.addEventListener("state", (e) => { S.connected = true; onState(JSON.parse(e.data)); });
-    for (const type of ["log", "tool", "claim", "waiting", "summary", "settings", "download"]) {
+    for (const type of ["log", "tool", "claim", "waiting", "queue", "summary", "settings", "download"]) {
       es.addEventListener(type, (e) => { const ev = JSON.parse(e.data); if (type === "settings") { if (S.state) S.state.settings = ev.settings; return; } if (type === "download") { onDownload(ev); return; } onEvent({ type, ...ev }); });
     }
     es.onerror = () => { S.connected = false; $("#conn").classList.add("off"); es.close(); setTimeout(connect, 2500); };

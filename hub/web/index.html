@@ -75,6 +75,7 @@
         <div class="meter" id="meterVram" title="VRAM"><span class="meter-label">VRAM</span><div class="meter-bar"><i id="meterVramFill"></i></div><span class="meter-text" id="meterVramText">—</span></div>
         <div class="meter" id="meterRam" title="System RAM"><span class="meter-label">RAM</span><div class="meter-bar"><i id="meterRamFill"></i></div><span class="meter-text" id="meterRamText">—</span></div>
         <div class="chip jobs" id="chipJobs" hidden><span class="spinner"></span><span id="chipJobsText"></span></div>
+        <div class="chip queue" id="chipQueue" hidden><span class="q-num" id="chipQueueNum"></span><span id="chipQueueText">waiting</span></div>
       </div>
       <div class="top-actions">
         <button class="btn ghost" id="btnFreeGpu" title="Unload every model so the whole card is free">Free GPU</button>
@@ -141,6 +142,7 @@
 
     <!-- ---------------------------------------------------------- tool -->
     <section class="view view-tool" id="view-tool" hidden>
+      <div class="queue-banner" id="queueBanner" hidden></div>
       <div class="tool-frames" id="toolFrames"></div>
       <div class="tool-overlay" id="toolOverlay" hidden>
         <div class="overlay-card">

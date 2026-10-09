@@ -65,11 +65,12 @@ class Settings:
     bind_host: str = "127.0.0.1"          # 0.0.0.0 to share on the LAN (see README)
     open_browser: bool = True
     gpu_policy: str = "auto"              # auto | exclusive | budget
-    prepare_on_switch: bool = True        # load the model of the tool you switch to, ahead of time
+    prepare_on_switch: bool = False       # load the model of the tool you switch to, ahead of time (off: the GPU
+                                          # queue loads a model when a job reaches the front, not when a page opens)
     prepare_delay_s: float = 3.0
     idle_unload_min: float = 0.0          # 0 = automatic (depends on VRAM size), -1 = never
     idle_stop_min: float = 0.0            # 0 = automatic, -1 = never
-    claim_wait_max_min: float = 45.0      # how long a generate request may wait for another tool's job
+    claim_wait_max_min: float = 0.0       # how long a queued request may wait for the jobs ahead of it (0 = no limit)
     vram_headroom_gb: float = 0.4
     release_ollama: bool = True           # ask a local Ollama to drop its models when VRAM is needed
     restyle_tools: bool = True            # apply the hub theme inside the embedded tools

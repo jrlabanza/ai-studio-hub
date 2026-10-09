@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from .process import ManagedProcess
 
 OLLAMA_URL = "http://127.0.0.1:11434"
+LEASE_GRACE_S = 8.0
 
 
 def idle_defaults(total_mb: int) -> tuple[float, float]:
@@ -67,6 +68,12 @@ class Orchestrator:
         self.focus: str | None = None
         self.focus_ts = 0.0
         self.pending: list[dict[str, Any]] = []
+        # The GPU lease: the studio a claim was granted to keeps the GPU until its job has been seen running and has
+        # finished - a status poll comes every 2.5 s, so without it the next claim could slip in before the first
+        # studio looked busy and unload its model under its own job. A claim that never turns into a job (a quick
+        # request) lets the lease lapse after LEASE_GRACE_S.
+        self.lease: dict[str, Any] | None = None
+        self.inflight: dict[str, int] = {}          # claimed requests still being answered, per studio
         self.recent_actions: collections.deque[dict[str, Any]] = collections.deque(maxlen=40)
         self._lock = asyncio.Lock()
         self._tasks: list[asyncio.Task] = []
@@ -115,8 +122,51 @@ class Orchestrator:
     def describe(self) -> dict[str, Any]:
         unload_min, stop_min = self.idle_minutes()
         return {"owner": self.owner, "owner_since": self.owner_since, "policy": self.policy(),
-                "focus": self.focus, "pending": list(self.pending), "idle_unload_min": unload_min,
+                "focus": self.focus, "pending": list(self.pending), "queue": self.queue(),
+                "lease": dict(self.lease) if self.lease else None, "idle_unload_min": unload_min,
                 "idle_stop_min": stop_min, "recent_actions": list(self.recent_actions)[-12:]}
+
+    def lease_holder(self, tool_id: str) -> str | None:
+        """Another studio whose granted job has not finished yet (or has not had time to show up), else None."""
+        lz = self.lease
+        if not lz or lz["tool"] == tool_id or lz["tool"] not in self.tools:
+            return None
+        holder = self.tools[lz["tool"]]
+        if not holder.running:
+            self.lease = None
+            return None
+        if self.summary(holder.id).busy or self.inflight.get(holder.id, 0) > 0:
+            return holder.id
+        if not lz.get("seen_busy") and time.time() - max(lz["granted"], lz.get("answered", 0.0)) < LEASE_GRACE_S:
+            return holder.id
+        self.lease = None                        # its job finished (or it never became one)
+        return None
+
+    def queue(self) -> list[dict[str, Any]]:
+        """The hub's GPU queue, in order: the job holding the GPU, then every request waiting for its turn."""
+        out: list[dict[str, Any]] = []
+        running = next((t for t in self.tools.values() if t.running and self.summary(t.id).busy), None)
+        holder = (self.lease or {}).get("tool") or (running.id if running else None)
+        if holder and holder in self.tools:
+            job = self.summary(holder).job or {}
+            out.append({"tool": holder, "name": self.tools[holder].spec.name, "status": "running",
+                        "title": job.get("title") or "", "percent": job.get("percent")})
+        for i, e in enumerate(self.pending):
+            out.append({"tool": e["tool"], "name": self.tools[e["tool"]].spec.name if e["tool"] in self.tools else e["tool"],
+                        "status": "waiting", "position": i + 1, "since": e["since"], "reason": e.get("reason", "")})
+        return out
+
+    def inflight_begin(self, tool_id: str) -> None:
+        self.inflight[tool_id] = self.inflight.get(tool_id, 0) + 1
+
+    def inflight_end(self, tool_id: str) -> None:
+        self.inflight[tool_id] = max(0, self.inflight.get(tool_id, 0) - 1)
+        if self.lease and self.lease["tool"] == tool_id:
+            self.lease["answered"] = time.time()
+        self._queue_changed()
+
+    def _queue_changed(self) -> None:
+        self.hub.bus.publish({"type": "queue", "queue": self.queue()})
 
     # ------------------------------------------------------------------ status polling
     async def refresh(self, tool: "ManagedProcess") -> Summary:
@@ -142,6 +192,8 @@ class Orchestrator:
         self.summary_ts[tool.id] = time.time()
         if summ.busy:
             self.note_activity(tool.id)
+            if self.lease and self.lease["tool"] == tool.id:
+                self.lease["seen_busy"] = True
         if prev is not None and (prev.state != summ.state or prev.label != summ.label):
             self.hub.bus.publish({"type": "summary", "tool": tool.id, "summary": summ.to_dict()})
         return summ
@@ -230,6 +282,7 @@ class Orchestrator:
         s = load_settings()
         entry = {"tool": tool_id, "reason": reason, "since": time.time(), "waiting_for": None}
         self.pending.append(entry)
+        self._queue_changed()
         t0 = time.time()
         try:
             async with self._lock:
@@ -237,11 +290,16 @@ class Orchestrator:
                 if not await tool.ensure_running():
                     return ClaimResult(False, tool_id, warning=tool.error or f"{tool.spec.name} could not be started")
 
-                # 1. Never interrupt a job that is running in another studio - wait for it.
+                # 1. Never interrupt a job that is running in another studio - wait for it. Requests line up behind
+                #    the lock in arrival order (the hub's GPU queue); the studio granted last keeps the GPU until its
+                #    job has finished (the lease), so a model is only ever switched between jobs.
                 waited_msg = None
-                deadline = t0 + max(1.0, s.claim_wait_max_min) * 60
+                deadline = t0 + s.claim_wait_max_min * 60 if s.claim_wait_max_min > 0 else float("inf")
                 while True:
                     busy_others = [t for t in self.tools.values() if t.id != tool_id and t.running and self.summary(t.id).busy]
+                    holder = self.lease_holder(tool_id)
+                    if holder and all(t.id != holder for t in busy_others):
+                        busy_others.append(self.tools[holder])
                     if not busy_others:
                         break
                     if not wait:
@@ -254,7 +312,7 @@ class Orchestrator:
                         self.hub.bus.publish({"type": "waiting", "tool": tool_id, "for": [t.id for t in busy_others]})
                     if time.time() > deadline:
                         return ClaimResult(False, tool_id, warning=f"Gave up waiting for {names}", waited_s=time.time() - t0)
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(1.0)
                     for t in busy_others:
                         await self.refresh(t)
                 entry["waiting_for"] = None
@@ -263,7 +321,7 @@ class Orchestrator:
                 actions: list[str] = []
                 if not gpu.available:
                     self._set_owner(tool_id)
-                    return ClaimResult(True, tool_id, actions, waited_s=time.time() - t0)
+                    return self._grant(ClaimResult(True, tool_id, actions, waited_s=time.time() - t0), reason)
 
                 total_gb = gpu.total_mb / 1024
                 need_mb = int((tool.spec.vram_need_gb(total_gb) + s.vram_headroom_gb) * 1024)
@@ -283,7 +341,7 @@ class Orchestrator:
                 others = [t for t in self.tools.values() if t.id != tool_id and t.running]
                 mine = self.summary(tool_id)
                 if self.owner == tool_id and mine.loaded and await enough():
-                    return ClaimResult(True, tool_id, actions, waited_s=time.time() - t0, free_mb=self.hub.gpu.latest.free_mb)
+                    return self._grant(ClaimResult(True, tool_id, actions, waited_s=time.time() - t0, free_mb=self.hub.gpu.latest.free_mb), reason)
 
                 # 2. Unload the other studios' models.
                 policy = self.policy()
@@ -360,12 +418,18 @@ class Orchestrator:
                 if reason:
                     summary_text += f" [{reason}]"
                 self._record(tool_id, summary_text, "warn" if warning else "info")
-                res = ClaimResult(True, tool_id, actions, warning, time.time() - t0, info.free_mb)
+                res = self._grant(ClaimResult(True, tool_id, actions, warning, time.time() - t0, info.free_mb), reason)
                 self.hub.bus.publish({"type": "claim", **res.to_dict(), "name": tool.spec.name})
                 return res
         finally:
             if entry in self.pending:
                 self.pending.remove(entry)
+            self._queue_changed()
+
+    def _grant(self, res: ClaimResult, reason: str) -> ClaimResult:
+        """The GPU goes to res.tool: it holds the lease until its job has run (see lease_holder)."""
+        self.lease = {"tool": res.tool, "granted": time.time(), "seen_busy": False, "reason": reason}
+        return res
 
     async def before_forward(self, tool_id: str, method: str, path: str) -> list[str]:
         """After a successful claim: whatever the tool needs queued ahead of the request itself."""
@@ -453,10 +517,11 @@ class Orchestrator:
     async def free_gpu(self, stop_processes: bool = False) -> list[str]:
         actions: list[str] = []
         async with self._lock:
+            holder = self.lease_holder("")             # a studio granted a job a moment ago keeps its model
             for t in self.tools.values():
                 if not t.running:
                     continue
-                if self.summary(t.id).busy:
+                if self.summary(t.id).busy or t.id == holder:
                     continue
                 if self.summary(t.id).loaded or t.id == "video":
                     await self.unload_models(t, "free GPU")
