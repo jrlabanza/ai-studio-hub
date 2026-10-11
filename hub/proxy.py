@@ -141,6 +141,11 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
         port = hub.proxy_ports.get(dst_tool)
         if not port or dst_tool == tool.id:
             return JSONResponse({"detail": f"unknown studio '{dst_tool}'"}, status_code=404)
+        dst = hub.tools.get(dst_tool)
+        if dst is not None and dst.enabled and dst.state in ("stopped", "error"):
+            # a call from another studio's page is an explicit request: start the studio even if the hub stopped
+            # it to free the GPU (held) - the call is answered "starting" until it is up, and the page retries
+            asyncio.get_running_loop().create_task(dst.start())
         url = f"http://127.0.0.1:{port}/{path}" + (f"?{request.url.query}" if request.url.query else "")
         headers = {k: v for k, v in request.headers.items() if k.lower() in ("content-type", "accept")}
         body = await request.body() if request.method == "POST" else None
