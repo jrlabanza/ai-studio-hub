@@ -565,3 +565,20 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 :root[data-look="cinema"] ::selection { background: rgba(209, 254, 23, .35); color: #fff; }
 :root[data-look="cinema"] .card, :root[data-look="cinema"] .tool-card { background: var(--panel); border-color: var(--line); }
 :root[data-look="cinema"] .card:hover, :root[data-look="cinema"] .tool-card:hover { border-color: var(--line-2); }
+
+/* ---------------------------------------------------------------- studio icons (in place of the 01-05 numbers) */
+.tool-ico svg, .tool-num svg, .top-num svg, .menu-num svg { stroke: var(--tool, var(--muted)); }
+.nav-item .tool-ico { width: 22px; height: 22px; display: grid; place-items: center; flex: none; }
+.nav-item .tool-ico svg { width: 19px; height: 19px; }
+.tool-num { width: 54px; height: 54px; border-radius: 15px; display: grid; place-items: center; -webkit-text-stroke: 0;
+  background: color-mix(in srgb, var(--tool, var(--muted)) 15%, transparent); border: 1px solid color-mix(in srgb, var(--tool, var(--muted)) 30%, transparent); }
+.tool-num svg { width: 27px; height: 27px; stroke-width: 1.7; }
+.tool-row .tool-num, .sm-head .tool-num { width: 40px; height: 40px; border-radius: 11px; }
+.tool-row .tool-num svg, .sm-head .tool-num svg { width: 21px; height: 21px; }
+.overlay-num { width: 76px; height: 76px; border-radius: 22px; }
+.overlay-num svg { width: 38px; height: 38px; }
+.top-num { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: color-mix(in srgb, var(--tool, var(--muted)) 15%, transparent); }
+.top-num[hidden] { display: none; }
+.top-num svg { width: 18px; height: 18px; }
+.menu-head .menu-num { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; }
+.menu-head .menu-num svg { width: 15px; height: 15px; }

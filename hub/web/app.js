@@ -3,6 +3,15 @@
   "use strict";
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  // Each studio's icon (24 px, stroked in its signature colour) - shown where the 01-05 numbers used to be.
+  const STUDIO_ICONS = {
+    image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
+    tts: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/>',
+    video: '<rect x="3" y="6.5" width="13" height="11" rx="2.5"/><path d="m16 10.5 5-3v9l-5-3"/>',
+    music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    forge: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.7 1.9L21.6 17.6l-1.9.7L19 20.2l-.7-1.9-1.9-.7 1.9-.7z"/>',
+  };
+  const studioIcon = (id) => `<svg viewBox="0 0 24 24" aria-hidden="true">${STUDIO_ICONS[id] || '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>'}</svg>`;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   const S = {
@@ -45,7 +54,7 @@
     if (nav && nav.dataset.built !== st.order.join(",")) {
       nav.dataset.built = st.order.join(",");
       nav.innerHTML = st.order.map((id, i) => { const t = st.tools[id]; return `<a class="nav-item nav-tool" data-view="tool" data-tool="${id}" href="#/tool/${id}" style="--tool:${t.color}" title="${esc(t.name)} (Alt+${i + 1})">
-        <span class="nav-num">${esc(t.number)}</span><span class="nav-label">${esc(t.name)}</span><span class="nav-dot" id="navdot-${id}"></span></a>`; }).join("");
+        <span class="nav-ico tool-ico">${studioIcon(id)}</span><span class="nav-label">${esc(t.name)}</span><span class="nav-dot" id="navdot-${id}"></span></a>`; }).join("");
       const chips = $("#libChips");
       chips.querySelectorAll(".chip[data-tool]:not([data-tool=''])").forEach((c) => c.remove());
       chips.insertAdjacentHTML("beforeend", st.order.map((id) => `<button class="chip filter" data-tool="${id}" style="--tool:${st.tools[id].color}">${esc(st.tools[id].short)}</button>`).join(""));
@@ -114,7 +123,7 @@
       S.tool = tool;
       const t = toolOf(tool);
       $("#topTitle").textContent = t ? t.name : nameOf(tool);
-      num.hidden = false; num.textContent = t ? t.number : ""; num.style.setProperty("--tool", t ? t.color : "var(--muted)");
+      num.hidden = false; num.innerHTML = t ? studioIcon(tool) : ""; num.style.setProperty("--tool", t ? t.color : "var(--muted)");
       $("#topSub").textContent = t ? t.tagline : "";
       mountTool(tool);
       sendFocus(tool);
@@ -187,7 +196,7 @@
     const show = (t.state === "error") || (!t.enabled) || (!t.installed);
     ov.hidden = !show;
     if (!show) return;
-    $("#overlayNum").textContent = t.number;
+    $("#overlayNum").innerHTML = studioIcon(t.id);
     $("#overlayNum").style.setProperty("--tool", t.color);
     $("#overlayTitle").textContent = t.name;
     $("#overlayText").textContent = !t.enabled ? "This studio is disabled in Settings." : (!t.installed ? t.install_note : (t.error || "The studio stopped."));
@@ -334,7 +343,7 @@
       }
       card.style.setProperty("--tool", t.color);
       card.classList.toggle("owner", !!t.is_owner);
-      $(".tool-num", card).textContent = t.number;
+      $(".tool-num", card).innerHTML = studioIcon(id);
       $(".tool-name", card).textContent = t.name;
       const [tone, label] = stateTone(t);
       const pill = $(".tool-pill", card); pill.className = `pill tool-pill ${tone}`; pill.textContent = label;
@@ -558,7 +567,7 @@
     m.className = "menu send-menu"; m.id = "ctxMenu";
     if (!targets.length) { const p = document.createElement("div"); p.className = "menu-note"; p.textContent = `No studio takes a ${kind} yet.`; m.appendChild(p); }
     for (const t of targets) {
-      const h = document.createElement("div"); h.className = "menu-head"; h.style.setProperty("--tool", t.color); h.innerHTML = `<span class="menu-num">${esc(t.number)}</span>${esc(t.name)}`; m.appendChild(h);
+      const h = document.createElement("div"); h.className = "menu-head"; h.style.setProperty("--tool", t.color); h.innerHTML = `<span class="menu-num">${studioIcon(t.id)}</span>${esc(t.name)}`; m.appendChild(h);
       for (const s of t.slots) { const b = document.createElement("button"); b.textContent = s.label; b.onclick = () => { closeMenu(); sendTo(it, t.tool, s); }; m.appendChild(b); }
     }
     document.body.appendChild(m);
@@ -664,7 +673,7 @@
   function renderToolSettings(s) {
     const host = $("#toolSettings"); if (!host) return;
     host.innerHTML = S.state.order.map((id) => { const t = toolOf(id), c = s.tools[id] || {}; return `<div class="tool-row" data-tool="${id}" style="--tool:${t.color}">
-      <div class="tool-num">${t.number}</div>
+      <div class="tool-num">${studioIcon(id)}</div>
       <div class="row-main"><b>${esc(t.name)}</b><small title="${esc(t.dir)}">${esc(t.dir)}</small><small>backend :${esc(t.port || c.port)} · entrance :${esc(t.proxy_port)} · ${t.installed ? (t.backend === "docker" ? "container " + esc(t.container) : "installed") : "not set up"}</small></div>
       <div class="row-ctl">
         <label>Enabled <button type="button" class="switch ${c.enabled ? "on" : ""}" data-tkey="enabled"></button></label>
@@ -750,7 +759,7 @@
       }).join("");
       const off = s.mode === "delegated" && s.offline ? `<div class="note warn">${esc(s.name)} is not running - start it to see and manage its models.${s.error ? " " + esc(s.error) : ""} <button class="btn small" data-act="start">Start</button></div>` : "";
       return `<section class="card studio-models" data-tool="${s.tool}" style="--tool:${s.color}">
-        <div class="sm-head"><div class="tool-num">${esc(s.number)}</div><div><h3>${esc(s.name)}</h3><p class="lead">${esc(s.note || "")}</p></div>${s.active && s.active.model ? `<span class="pill owner" title="Model in use">${esc(String(s.active.model).split("/").pop())}</span>` : ""}</div>
+        <div class="sm-head"><div class="tool-num">${studioIcon(s.tool)}</div><div><h3>${esc(s.name)}</h3><p class="lead">${esc(s.note || "")}</p></div>${s.active && s.active.model ? `<span class="pill owner" title="Model in use">${esc(String(s.active.model).split("/").pop())}</span>` : ""}</div>
         ${off}${kinds}
       </section>`;
     }).join("");
