@@ -104,3 +104,10 @@ AI-film-studio palette that Video Studio also uses: near-black layered surfaces 
 #232323), white text, muted #898a8b, 8 % hairlines, an acid-lime primary (#d1fe17, dark ink, soft glow) for the
 action to press and "you are here", grey section labels, pill chips, Space Grotesk for headings. It is always dark
 and tells the studios "dark". *Classic* is palette v7 (coral / teal) with the light / dark theme.
+
+The look is a hub setting (`look` in data/settings.json, also kept in `localStorage` `pxx-look` so the shell paints
+without a flash). The entrance proxy passes it to every studio page (`window.__HUB.look`, theme forced to dark),
+bridge.js sets `html[data-hub-look]`, and `brand/tools/<studio>.css` maps each studio's own tokens onto the cinema
+palette under `html:root[data-hub-look="cinema"]` (outranks their `:root` / `[data-theme]` rules; Forge's Gradio
+variables live on body / .dark / .gradio-container, so its map is applied there with !important). Video Studio has
+the same look built in. The studios keep working unchanged outside the hub.

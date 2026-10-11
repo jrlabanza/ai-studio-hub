@@ -98,6 +98,7 @@ class Hub:
             "absent": [{"id": tid, "name": TOOLS[tid].name, "dir": DEFAULT_TOOLS[tid]["dir"]} for tid in self.absent],
             "orchestrator": self.orchestrator.describe(),
             "theme": s.theme,
+            "look": s.look,
             "settings": s.to_dict(),
             "clients": self.bus.connected,
         }

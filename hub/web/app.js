@@ -71,9 +71,10 @@
   // "cinema" (default): the AI-film-studio palette, always dark - the studios get "dark" too, so the whole hub
   // matches; "classic": palette v7 with the light / dark theme.
   function currentLook() { try { return localStorage.getItem("pxx-look") || "cinema"; } catch (e) { return "cinema"; } }
-  function applyLook(look) {
+  function applyLook(look, save = true) {
     document.documentElement.dataset.look = look;
     try { localStorage.setItem("pxx-look", look); } catch (e) { /* ignore */ }
+    if (save) api("/api/settings", { method: "PUT", body: { look } }).catch(() => {});   // the studios' pages read it
     const t = $("#btnTheme");
     if (t) t.hidden = look === "cinema";
     if (look === "cinema") applyTheme("dark", false);
@@ -86,7 +87,7 @@
     S.theme = theme;
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem("pxx-theme", theme); } catch (e) { /* ignore */ }
-    Object.values(S.frames).forEach((f) => { try { f.contentWindow.postMessage({ type: "hub:theme", theme }, "*"); } catch (e) { /* ignore */ } });
+    Object.values(S.frames).forEach((f) => { try { f.contentWindow.postMessage({ type: "hub:theme", theme, look: currentLook() }, "*"); } catch (e) { /* ignore */ } });
     if (save) api("/api/settings", { method: "PUT", body: { theme } }).catch(() => {});
   }
 
@@ -207,6 +208,7 @@
     if (S.view === "tool") { const t = toolOf(S.tool); if (t) { $("#topTitle").textContent = t.name; $("#topSub").textContent = t.tagline; const num = $("#topNum"); num.textContent = t.number; num.style.setProperty("--tool", t.color); } }
     syncFrames();
     if (S.view === "settings" && !S.settingsDirty) renderSettings(false);
+    if (st.look && st.look !== currentLook() && !S.lookTouched) applyLook(st.look, false);
     if (st.theme && st.theme !== S.theme && !S.themeTouched && currentLook() !== "cinema") applyTheme(st.theme, false);
   }
 
@@ -974,8 +976,8 @@
   function bind() {
     window.addEventListener("hashchange", route);
     $("#btnTheme").onclick = () => { S.themeTouched = true; applyTheme(S.theme === "dark" ? "light" : "dark"); };
-    $("#btnLook").onclick = () => applyLook(currentLook() === "cinema" ? "classic" : "cinema");
-    applyLook(currentLook());
+    $("#btnLook").onclick = () => { S.lookTouched = true; applyLook(currentLook() === "cinema" ? "classic" : "cinema"); };
+    applyLook(currentLook(), false);
     $("#btnCollapse").onclick = () => { document.body.classList.toggle("collapsed"); try { localStorage.setItem("pxx-rail", document.body.classList.contains("collapsed") ? "1" : "0"); } catch (e) { /* ignore */ } };
     $("#btnActivity").onclick = () => toggleDrawer();
     $("#drawerClose").onclick = () => toggleDrawer(false);
@@ -1015,7 +1017,7 @@
     });
     window.addEventListener("message", (e) => {
       const d = e.data || {};
-      if (d.type === "hub:ready" && d.tool) { S.frameReady[d.tool] = true; const f = S.frames[d.tool]; if (f) { try { f.contentWindow.postMessage({ type: "hub:theme", theme: S.theme }, "*"); } catch (err) { /* ignore */ } } }
+      if (d.type === "hub:ready" && d.tool) { S.frameReady[d.tool] = true; const f = S.frames[d.tool]; if (f) { try { f.contentWindow.postMessage({ type: "hub:theme", theme: S.theme, look: currentLook() }, "*"); } catch (err) { /* ignore */ } } }
       if (d.type === "hub:navigate" && d.hash) location.hash = d.hash;
       if (d.type === "hub:imported" && d.tool) {
         const t = toolOf(d.tool);

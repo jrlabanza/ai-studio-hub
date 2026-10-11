@@ -2,3 +2,38 @@
    and honours html[data-theme]; the hub only hides what the shell already shows. */
 html:root[data-hub-theme] .brand { display: none !important; }
 html:root[data-hub-theme] .topbar { border-bottom-color: var(--line); }
+
+/* Cinema look (html[data-hub-look="cinema"]): Image Studio's tokens mapped to the AI-film-studio palette - near-black
+   layers, white type, acid-lime primary with a glow. Outranks the studio's own :root / [data-theme] rules. */
+html:root[data-hub-look="cinema"], html:root[data-hub-look="cinema"][data-theme="dark"], html:root[data-hub-look="cinema"][data-theme="light"] {
+  --bg: #0b0b0b;
+  --bg-2: #131313;
+  --panel: #131313;
+  --panel-2: #1b1b1b;
+  --panel-3: #232323;
+  --line: rgba(255,255,255,.08);
+  --line-2: rgba(255,255,255,.15);
+  --text: #ffffff;
+  --text-2: #d6d6d6;
+  --muted: #898a8b;
+  --faint: #5f6062;
+  --accent: #d1fe17;
+  --accent-2: #e2ff6b;
+  --accent-hover: #e2ff6b;
+  --accent-ink: #0b0b0b;
+  --accent-soft: rgba(209,254,23,.13);
+  --accent-line: rgba(209,254,23,.5);
+  --accent-grad: linear-gradient(135deg, #d1fe17, #e2ff6b);
+  --studio: #d1fe17;
+  --busy: #d1fe17;
+  --ok: #53c546;
+  --warn: #f3c977;
+  --warn-bg: rgba(243,201,119,.12);
+  --danger: #ff4d5e;
+  --danger-bg: rgba(255,77,94,.14);
+  --radius: 16px;
+  --radius-s: 12px;
+  --shadow: 0 18px 48px rgba(0,0,0,.6);
+  --shadow-2: 0 8px 24px rgba(0,0,0,.45);
+}
+html:root[data-hub-look="cinema"] .btn.primary { box-shadow: 0 0 0 1px rgba(209,254,23,.35), 0 6px 26px rgba(209,254,23,.28) !important; color: #0b0b0b !important; }

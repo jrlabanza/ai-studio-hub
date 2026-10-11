@@ -9,7 +9,15 @@
   var theme = cfg.theme || "light";
   var applying = false;
 
+  var look = cfg.look || "classic";
+  function applyLook(l) {
+    look = l || "classic";
+    html.setAttribute("data-hub-look", look);       // tools/<studio>.css re-skins the studio for "cinema"
+  }
+  applyLook(look);
+
   function applyTheme(t) {
+    if (look === "cinema") t = "dark";               // the cinema look is always dark
     theme = t;
     applying = true;
     html.setAttribute("data-hub-theme", t);
@@ -178,7 +186,7 @@
   // ------------------------------------------------------------------ talk to the shell
   window.addEventListener("message", function (e) {
     var d = e.data || {};
-    if (d.type === "hub:theme" && d.theme) applyTheme(d.theme);
+    if (d.type === "hub:theme" && d.theme) { if (d.look) applyLook(d.look); applyTheme(d.theme); }
     if (d.type === "hub:notice" && d.text) showBanner(d.text, d.tone, d.ttl || 6000);
     if (d.type === "hub:import" && d.url && d.slot) onImport(d);
   });

@@ -119,6 +119,8 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(400, "gpu_policy must be auto, exclusive or budget")
         if "theme" in data and data["theme"] not in ("light", "dark"):
             raise HTTPException(400, "theme must be light or dark")
+        if "look" in data and data["look"] not in ("cinema", "classic"):
+            raise HTTPException(400, "look must be cinema or classic")
         s = save_settings(data)
         hub.bus.publish({"type": "settings", "settings": s.to_dict()})
         return s.to_dict()

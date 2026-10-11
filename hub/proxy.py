@@ -67,7 +67,8 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
     def inject(html: str, request: Request) -> str:
         s = load_settings()
         cfg = {"tool": tool.id, "name": tool.spec.name, "short": tool.spec.short, "number": tool.spec.number,
-               "color": tool.spec.color, "theme": s.theme, "hub": hub_url(request), "restyle": s.restyle_tools,
+               "color": tool.spec.color, "theme": "dark" if s.look == "cinema" else s.theme, "look": s.look,
+               "hub": hub_url(request), "restyle": s.restyle_tools,
                "fonts": s.brand_fonts_in_tools, "version": __version__,
                "claims": [[sorted(methods), prefix] for methods, prefix in tool.spec.claim_routes],
                "exclude": list(tool.spec.claim_exclude_suffixes)}
@@ -86,7 +87,8 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
     def starting_page(request: Request) -> HTMLResponse:
         page = starting_template
         for key, val in (("name", tool.spec.name), ("number", tool.spec.number), ("color", tool.spec.color),
-                         ("tagline", tool.spec.tagline), ("tool", tool.id), ("theme", load_settings().theme),
+                         ("tagline", tool.spec.tagline), ("tool", tool.id),
+                         ("theme", "dark" if load_settings().look == "cinema" else load_settings().theme),
                          ("hub", hub_url(request)), ("version", __version__)):
             page = page.replace("{{" + key + "}}", str(val))
         return HTMLResponse(page, status_code=200, headers={"Cache-Control": "no-store"})

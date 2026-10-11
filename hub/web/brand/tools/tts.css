@@ -1,3 +1,35 @@
 /* Hub rules for Voice Studio. The studio implements the shared design language natively (see docs/design.md)
    and honours html[data-theme]; the hub only hides what the shell already shows. */
 html:root[data-hub-theme] .topbar .brand, html:root[data-hub-theme] .brand { display: none !important; }
+
+/* Cinema look (html[data-hub-look="cinema"]): Voice Studio's tokens mapped to the AI-film-studio palette - near-black
+   layers, white type, acid-lime primary with a glow. Outranks the studio's own :root / [data-theme] rules. */
+html:root[data-hub-look="cinema"], html:root[data-hub-look="cinema"][data-theme="dark"], html:root[data-hub-look="cinema"][data-theme="light"] {
+  --bg: #0b0b0b;
+  --bg-2: #131313;
+  --bg-3: #1b1b1b;
+  --panel-2: #1b1b1b;
+  --border: rgba(255,255,255,.08);
+  --border-2: rgba(255,255,255,.15);
+  --text: #ffffff;
+  --text-2: #d6d6d6;
+  --muted: #898a8b;
+  --faint: #5f6062;
+  --accent: #d1fe17;
+  --accent-2: #e2ff6b;
+  --accent-ink: #0b0b0b;
+  --accent-soft: rgba(209,254,23,.13);
+  --signature: #d1fe17;
+  --busy: #d1fe17;
+  --busy-soft: rgba(209,254,23,.13);
+  --ok: #53c546;
+  --ok-soft: rgba(83,197,70,.14);
+  --warn: #f3c977;
+  --warn-soft: rgba(243,201,119,.12);
+  --danger: #ff4d5e;
+  --danger-soft: rgba(255,77,94,.14);
+  --shadow-primary: 0 0 0 1px rgba(209,254,23,.35), 0 6px 26px rgba(209,254,23,.28);
+  --radius: 16px;
+  --radius-s: 12px;
+}
+html:root[data-hub-look="cinema"] .seg-btn.active { color: #d1fe17; }

@@ -61,6 +61,7 @@ def ensure_dirs() -> None:
 @dataclass
 class Settings:
     theme: str = "light"                  # light | dark
+    look: str = "cinema"                  # cinema (dark, acid lime - shell and studios) | classic (palette v7 + theme)
     hub_port: int = 7900
     bind_host: str = "127.0.0.1"          # 0.0.0.0 to share on the LAN (see README)
     open_browser: bool = True

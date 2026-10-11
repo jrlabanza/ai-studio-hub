@@ -1,5 +1,5 @@
 /* Hub theme - shared part injected into every studio. Per-tool variable maps live in <tool>.css. */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
 
 /* The hub's font for the parts that carry identity: titles, tabs, buttons. Body copy keeps the tool's own
    text face so dense 12-13 px UI text stays exactly as its author tuned it. */
@@ -39,3 +39,11 @@ html[data-hub-theme] #btnTheme { display: none !important; }
 /* Scrollbars follow the theme. */
 html[data-hub-theme] ::-webkit-scrollbar-thumb { background: rgba(113, 113, 122, .45); border-radius: 8px; }
 html[data-hub-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .18); }
+
+/* ---------------------------------------------------------------- Cinema look inside the studios
+   (html[data-hub-look="cinema"], set by bridge.js from the hub's Look setting). The per-studio maps of the palette
+   live in <studio>.css; shared here: the heading face, selection, scrollbars, the page background. */
+html:root[data-hub-look="cinema"] h1, html:root[data-hub-look="cinema"] h2, html:root[data-hub-look="cinema"] h3 { font-family: "Space Grotesk", "Inter", system-ui, sans-serif !important; }
+html:root[data-hub-look="cinema"] ::selection { background: rgba(209, 254, 23, .35); color: #fff; }
+html:root[data-hub-look="cinema"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); }
+html:root[data-hub-look="cinema"], html:root[data-hub-look="cinema"] body { background-color: #0b0b0b; color-scheme: dark; }
