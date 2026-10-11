@@ -3,7 +3,7 @@
    switches; each studio keeps its small signature colour (see docs/design.md). Type: Inter (UI), Fraunces (display accent), both via Google Fonts with
    system fallbacks so the shell also works offline. */
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400&family=Space+Grotesk:wght@400;500;600;700&display=swap");
 
 :root {
   --ink: #1A1513; --grey: #E6DFDA;
@@ -526,3 +526,42 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .queue-banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 8px; max-width: min(720px, 92%); padding: 9px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--accent); box-shadow: var(--shadow); font-size: 13.5px; color: var(--text); }
 .queue-banner b { color: var(--accent); white-space: nowrap; }
 .queue-banner .spinner { flex: none; }
+
+/* ---------------------------------------------------------------- Cinema look (default: html[data-look="cinema"])
+   The AI-film-studio palette, matching Video Studio's Cinema look: near-black layered surfaces, white type, 8 %
+   hairlines, an acid-lime primary (#d1fe17, dark ink, a soft glow) for "press this" and "you are here", grey
+   section labels, pill chips; Space Grotesk for headings. Always dark (the studios are told "dark" too). */
+:root[data-look="cinema"], :root[data-look="cinema"][data-theme="light"], :root[data-look="cinema"][data-theme="dark"] {
+  --ink: #050505;
+  --bg: #0b0b0b; --panel: #131313; --panel-2: #1b1b1b; --panel-3: #232323;
+  --line: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .15);
+  --text: #ffffff; --text-2: #d6d6d6; --muted: #898a8b; --faint: #5f6062;
+  --accent: #d1fe17; --accent-hover: #e2ff6b; --accent-ink: #0b0b0b; --accent-soft: rgba(209, 254, 23, .13);
+  --teal: #d1fe17; --teal-soft: rgba(209, 254, 23, .12);
+  --ok: #53c546; --busy: #d1fe17; --warn: #f3c977; --warn-bg: rgba(243, 201, 119, .12); --danger: #ff4d5e; --danger-bg: rgba(255, 77, 94, .14);
+  --rail: #0b0b0b; --rail-text: #d6d6d6; --rail-muted: #6f7071; --rail-line: rgba(255, 255, 255, .07); --rail-active: rgba(255, 255, 255, .07);
+  --shadow: 0 18px 48px rgba(0, 0, 0, .6); --shadow-2: 0 8px 24px rgba(0, 0, 0, .45);
+  --shadow-primary: 0 0 0 1px rgba(209, 254, 23, .35), 0 6px 26px rgba(209, 254, 23, .28);
+  --radius: 16px; --radius-s: 12px;
+  --display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  color-scheme: dark;
+}
+:root[data-look="cinema"] body { background: radial-gradient(1200px 600px at 60% -220px, #161a0a 0%, #0b0b0b 60%) fixed, #0b0b0b; }
+:root[data-look="cinema"] h1, :root[data-look="cinema"] h2, :root[data-look="cinema"] h3,
+:root[data-look="cinema"] .eyebrow, :root[data-look="cinema"] .nav-section, :root[data-look="cinema"] .rail-brand .wordmark-text { font-family: var(--display); }
+:root[data-look="cinema"] .eyebrow { color: #9a9b9c; letter-spacing: .1em; }
+:root[data-look="cinema"] .rail { border-right-color: rgba(255, 255, 255, .06); }
+:root[data-look="cinema"] .nav-item.active { background: rgba(209, 254, 23, .1); color: #fff; }
+:root[data-look="cinema"] .nav-item.active .nav-ico { color: #d1fe17; }
+:root[data-look="cinema"] .nav-item.active::before { background: #d1fe17; }
+:root[data-look="cinema"] .rail-gpu-bar i { background: #d1fe17; }
+:root[data-look="cinema"] .meter-bar i { background: #d1fe17; }
+:root[data-look="cinema"] .stack .seg.tools, :root[data-look="cinema"] .sw.tools { background: #d1fe17; }
+:root[data-look="cinema"] .stack .seg.other, :root[data-look="cinema"] .sw.other { background: #6f7071; opacity: 1; }
+:root[data-look="cinema"] .switch.on { background: #d1fe17; }
+:root[data-look="cinema"] .btn.primary { box-shadow: var(--shadow-primary); }
+:root[data-look="cinema"] .chip { border-radius: 999px; }
+:root[data-look="cinema"] .chip.active, :root[data-look="cinema"] .chip.filter.active { border-color: rgba(209, 254, 23, .55); color: #d1fe17; background: rgba(209, 254, 23, .1); }
+:root[data-look="cinema"] ::selection { background: rgba(209, 254, 23, .35); color: #fff; }
+:root[data-look="cinema"] .card, :root[data-look="cinema"] .tool-card { background: var(--panel); border-color: var(--line); }
+:root[data-look="cinema"] .card:hover, :root[data-look="cinema"] .tool-card:hover { border-color: var(--line-2); }

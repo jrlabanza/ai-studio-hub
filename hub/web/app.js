@@ -67,8 +67,22 @@
     setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s"; setTimeout(() => el.remove(), 320); }, ttl);
   }
 
+  // ------------------------------------------------------------------ look
+  // "cinema" (default): the AI-film-studio palette, always dark - the studios get "dark" too, so the whole hub
+  // matches; "classic": palette v7 with the light / dark theme.
+  function currentLook() { try { return localStorage.getItem("pxx-look") || "cinema"; } catch (e) { return "cinema"; } }
+  function applyLook(look) {
+    document.documentElement.dataset.look = look;
+    try { localStorage.setItem("pxx-look", look); } catch (e) { /* ignore */ }
+    const t = $("#btnTheme");
+    if (t) t.hidden = look === "cinema";
+    if (look === "cinema") applyTheme("dark", false);
+    else applyTheme(S.classicTheme || "light", false);
+  }
+
   // ------------------------------------------------------------------ theme
   function applyTheme(theme, save = true) {
+    if (currentLook() !== "cinema") S.classicTheme = theme;
     S.theme = theme;
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem("pxx-theme", theme); } catch (e) { /* ignore */ }
@@ -193,7 +207,7 @@
     if (S.view === "tool") { const t = toolOf(S.tool); if (t) { $("#topTitle").textContent = t.name; $("#topSub").textContent = t.tagline; const num = $("#topNum"); num.textContent = t.number; num.style.setProperty("--tool", t.color); } }
     syncFrames();
     if (S.view === "settings" && !S.settingsDirty) renderSettings(false);
-    if (st.theme && st.theme !== S.theme && !S.themeTouched) applyTheme(st.theme, false);
+    if (st.theme && st.theme !== S.theme && !S.themeTouched && currentLook() !== "cinema") applyTheme(st.theme, false);
   }
 
   function renderTop() {
@@ -960,6 +974,8 @@
   function bind() {
     window.addEventListener("hashchange", route);
     $("#btnTheme").onclick = () => { S.themeTouched = true; applyTheme(S.theme === "dark" ? "light" : "dark"); };
+    $("#btnLook").onclick = () => applyLook(currentLook() === "cinema" ? "classic" : "cinema");
+    applyLook(currentLook());
     $("#btnCollapse").onclick = () => { document.body.classList.toggle("collapsed"); try { localStorage.setItem("pxx-rail", document.body.classList.contains("collapsed") ? "1" : "0"); } catch (e) { /* ignore */ } };
     $("#btnActivity").onclick = () => toggleDrawer();
     $("#drawerClose").onclick = () => toggleDrawer(false);

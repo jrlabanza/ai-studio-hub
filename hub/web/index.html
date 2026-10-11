@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="{{theme}}">
+<html lang="en" data-theme="{{theme}}" data-look="cinema">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,6 +7,7 @@
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/styles.css?v={{v}}">
+<script>try{var l=localStorage.getItem("pxx-look")||"cinema";document.documentElement.dataset.look=l;if(l==="cinema")document.documentElement.dataset.theme="dark";}catch(e){}</script>
 </head>
 <body class="booting">
 <div id="app" class="app">
@@ -50,6 +51,9 @@
         <div class="rail-gpu-text"><span id="railGpuText">GPU</span></div>
       </div>
       <div class="rail-buttons">
+        <button class="rail-btn" id="btnLook" title="Look: Cinema (dark, lime) or Classic">
+          <svg viewBox="0 0 24 24"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8z"/><path d="m4 11 1.6-5.2a1 1 0 0 1 1.2-.7l12 3.4a1 1 0 0 1 .7 1.2L19 11"/><path d="m8.5 6.2 2.5 4.3M13.5 7.6l2.5 4.3"/></svg><span class="nav-label">Look</span>
+        </button>
         <button class="rail-btn" id="btnTheme" title="Switch light / dark theme (Alt+T)">
           <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span class="nav-label">Theme</span>
         </button>

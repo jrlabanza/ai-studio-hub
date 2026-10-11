@@ -95,3 +95,12 @@ active-tab underline and its status dot. Primary buttons stay `accent` in every 
 * The hub's bridge sets `data-theme` (and `data-hub-theme`, plus a `dark` class) on the studio's `<html>`
   and keeps it in step with the shell, so a studio only has to honour `data-theme`.
 * `color-scheme` follows the theme so native controls and scrollbars match.
+
+
+## Cinema look (default since 2026-10-11)
+
+`html[data-look="cinema"]` (the shell's *Look* button; `localStorage` `pxx-look`) re-skins the shell to the
+AI-film-studio palette that Video Studio also uses: near-black layered surfaces (#0b0b0b / #131313 / #1b1b1b /
+#232323), white text, muted #898a8b, 8 % hairlines, an acid-lime primary (#d1fe17, dark ink, soft glow) for the
+action to press and "you are here", grey section labels, pill chips, Space Grotesk for headings. It is always dark
+and tells the studios "dark". *Classic* is palette v7 (coral / teal) with the light / dark theme.
