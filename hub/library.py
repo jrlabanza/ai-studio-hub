@@ -314,6 +314,8 @@ class Library:
                 j = json.loads(raw)
             except Exception:
                 continue
+            if j.get("deleted_at"):
+                continue        # in Lumen's Trash: it stays 'succeeded' in the table (and on disk) until the purge
             out = j.get("output_file")
             if not out:
                 continue
