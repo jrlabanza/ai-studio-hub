@@ -354,6 +354,13 @@ GET_POST = frozenset({"GET", "POST"})
 
 
 # ======================================================================= 01 Image Studio
+def _image_brand_env() -> dict[str, str]:
+    """Image Studio's brand kit, if this hub ships one: web/brand/kit/kit.json (logos, colours, fonts). The kit stays
+    with the hub, so the studio's own folder and repository hold nothing company-specific."""
+    kit = Path(__file__).resolve().parent / "web" / "brand" / "kit"
+    return {"QIS_BRAND_DIR": str(kit)} if (kit / "kit.json").is_file() else {}
+
+
 class ImageTool(ToolSpec):
     id = "image"
     name = "Image Studio"
@@ -405,7 +412,7 @@ class ImageTool(ToolSpec):
         return {**BASE_ENV, "HF_HOME": str(cache / "huggingface"), "HF_HUB_OFFLINE": "1",
                 "HF_HUB_DISABLE_TELEMETRY": "1", "TRANSFORMERS_VERBOSITY": "error",
                 "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "TMP": str(cache / "tmp"),
-                "TEMP": str(cache / "tmp"), "QIS_RESTARTED": "1"}
+                "TEMP": str(cache / "tmp"), "QIS_RESTARTED": "1", **_image_brand_env()}
 
     def pre_launch(self, tool_dir: Path, cfg: dict[str, Any]) -> list[str]:
         """Repair a stale absolute ``model_path`` after the tool folder was moved.
