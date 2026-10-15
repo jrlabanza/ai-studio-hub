@@ -527,7 +527,10 @@ class TtsTool(ToolSpec):
         "/api/tts/", "/api/models/load", "/api/tokenizer/", "/api/voices", "/api/sts", "/api/dub", "/api/transcribe",
         "/api/regenerate/", "/api/quality/", "/api/batch/csv", "/api/previews/generate", "/api/finetune/start",
         "/api/finetune/datasets", "/api/pronunciation/preview", "/v1/text-to-speech/", "/v1/speech-to-text",
+        "/api/drama/generate", "/api/drama/ref",   # Drama tab: Fish Audio Drama-3 (~7 GB VRAM) / Whisper
     )) + ((GET_POST, "/api/subtitles/"),)
+    # the Drama tab keeps ~11 GB of Drama-3's experts in RAM while a scene is performed
+    ram_need_gb = 14.0
 
     def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
         return [str(self.python(tool_dir)), "app/server.py", "--host", "127.0.0.1", "--port", str(port)]
