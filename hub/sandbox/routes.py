@@ -23,6 +23,29 @@ from .store import RESERVED, SandboxError, Store
 ASSIST_MAX_CHARS = 12000          # the assistant's model has an 8k-token context: the file plus its new version
 
 
+def place_edit(text: str, find: str, repl: str) -> str | None:
+    """Apply one find / replace edit from the assistant, or None when it cannot be placed safely. The edit is reduced
+    to what actually changes (the common start and end of find and replace are context), then placed with the largest
+    piece of that context that occurs exactly once in the file - a small model often miscopies a character of the
+    context it repeats, which must not lose the change, nor put it in the wrong place."""
+    if text.count(find) == 1:
+        return text.replace(find, repl, 1)
+    p = 0
+    while p < min(len(find), len(repl)) and find[p] == repl[p]:
+        p += 1
+    q = 0
+    while q < min(len(find), len(repl)) - p and find[-1 - q] == repl[-1 - q]:
+        q += 1
+    core_f, core_r = find[p:len(find) - q], repl[p:len(repl) - q]
+    before, after = find[:p], find[len(find) - q:]
+    for n in (80, 40, 24, 12, 6, 0):
+        b, a = before[-n:] if n else "", after[:n] if n else ""
+        needle = b + core_f + a
+        if needle and text.count(needle) == 1:
+            return text.replace(needle, b + core_r + a, 1)
+    return None
+
+
 def lan_ip() -> str:
     """This PC's address on the network (the interface that would route outward; nothing is sent)."""
     try:
@@ -301,26 +324,44 @@ def register(app: FastAPI, hub) -> None:
         if len(text) > ASSIST_MAX_CHARS:
             raise HTTPException(413, f"The assistant handles files up to {ASSIST_MAX_CHARS // 1000} k characters")
         device = "cpu" if body.get("device") == "cpu" else runtime.pick_device("auto")
+        # The model returns exact find / replace edits, applied here: a small model that rewrites a whole file tends
+        # to drop or garble lines it was not asked to touch; this way untouched text cannot change.
         messages = [
-            {"role": "system", "content": "You edit one file of a small project. Apply exactly the requested change and "
-             "keep everything else as it is. Reply with the complete new content of the file only: no explanations, "
-             "no markdown fences."},
-            {"role": "user", "content": f"File: {path}\nChange: {ask}\n\n----- current content -----\n{text}"}]
+            {"role": "system", "content": "You change one file of a small project as asked. Answer with JSON: "
+             "{\"edits\": [{\"find\": exact text copied from the file, \"replace\": its new text}]}. Each find must "
+             "appear exactly once in the file - include enough of the surrounding line to make it unique. To add "
+             "something, find the line it goes after and replace it with that line plus the new text. No explanations."},
+            {"role": "user", "content": f"File: {path}\nChange: {ask}\n\n----- file -----\n{text}"}]
+        schema = {"type": "object", "required": ["edits"], "properties": {"edits": {"type": "array", "items": {
+            "type": "object", "required": ["find", "replace"],
+            "properties": {"find": {"type": "string"}, "replace": {"type": "string"}}}}}}
         try:
             await runtime.ensure_running(load_settings().assistant_model)
-            out, info = await runtime.chat(messages, device=device, temperature=0.2)
+            raw, info = await runtime.chat(messages, schema=schema, device=device, temperature=0.2)
         except Exception as exc:
             raise HTTPException(502, f"The assistant's model is not available: {exc}")
         finally:
             await runtime.unload()
-        out = out.strip("\n")
-        m = re.fullmatch(r"\s*```[\w+-]*\n(.*?)\n?```\s*", out, re.S)
-        if m:
-            out = m.group(1)
-        if text.endswith("\n") and not out.endswith("\n"):
-            out += "\n"
+        try:
+            edits = runtime.parse_json(raw).get("edits") or []
+        except ValueError:
+            edits = []
+        out, applied, skipped = text, 0, []
+        for e in edits if isinstance(edits, list) else []:
+            find, repl = str((e or {}).get("find") or ""), str((e or {}).get("replace") or "")
+            if not find or find == repl:
+                continue
+            placed = place_edit(out, find, repl)
+            if placed is None:
+                skipped.append(find[:80])
+                continue
+            out = placed
+            applied += 1
+        if not applied:
+            raise HTTPException(502, "The assistant could not place its change in this file - try again or say "
+                                     "where it goes")
         author, ip = who(request, body)
         p = await run(store.project, pid)
         store.event("assistant suggested a change", author, ip, p, path=path, instruction=ask[:200],
                     device=info.get("device"), seconds=info.get("seconds"))
-        return {"content": out, "info": info}
+        return {"content": out, "info": info, "applied": applied, "skipped": skipped}

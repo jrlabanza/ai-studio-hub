@@ -502,7 +502,7 @@
   function askAssistant() {
     if (!SB.file || !SB.file.text) return;
     hub().openModal(`<div class="eyebrow">Assistant · ${esc(SB.file.path)}</div><h3 class="serif" style="font-size:26px;margin:4px 0 6px">What should change?</h3>
-      <p class="lead">The hub Assistant's local model rewrites this file as you ask - on the GPU when it is free, otherwise on the CPU (slower, up to a few minutes). You see the change before anything is applied; nothing is saved until you press Save.</p>
+      <p class="lead">The hub Assistant's local model proposes the change as exact edits to this file - on the GPU when it is free, otherwise on the CPU (slower, up to a few minutes). You see the change before anything is applied; nothing is saved until you press Save.</p>
       <div class="sb-form"><textarea id="sbAsk" rows="3" placeholder="e.g. add a dark mode toggle in the top right corner"></textarea>
       <div class="sb-row"><button class="btn primary" id="sbAskGo">Suggest a change</button><span class="sb-muted" id="sbAskState"></span></div></div>
       <div id="sbAskOut"></div>`, false);
@@ -514,7 +514,7 @@
       try {
         const d = await api(`/api/sandbox/projects/${SB.d.project.id}/assist`, { method: "POST", body: { path: SB.file.path, content: SB.file.content, instruction: ask, author: author() } });
         const diff = lineDiff(SB.file.content, d.content);
-        $("#sbAskState").textContent = `${d.info.seconds} s on the ${d.info.device.toUpperCase()} · +${diff.add} −${diff.del} lines`;
+        $("#sbAskState").textContent = `${d.info.seconds} s on the ${d.info.device.toUpperCase()} · +${diff.add} −${diff.del} lines${d.skipped && d.skipped.length ? ` · ${d.skipped.length} edit${d.skipped.length === 1 ? "" : "s"} could not be placed and ${d.skipped.length === 1 ? "was" : "were"} left out` : ""}`;
         $("#sbAskOut").innerHTML = `<pre class="sb-diff">${diff.html || "<i>No change.</i>"}</pre><div class="sb-row"><button class="btn primary" id="sbAskApply" ${diff.add + diff.del ? "" : "disabled"}>Apply to the editor</button><button class="btn ghost" id="sbAskNo">Discard</button></div>`;
         $("#sbAskNo").onclick = () => hub().closeModal();
         $("#sbAskApply").onclick = () => { SB.file.content = d.content; hub().closeModal(); paintEditor(); markDirty(SB.file.content !== SB.file.saved); toast("Applied - review it and press Save", "ok"); };
@@ -531,8 +531,8 @@
     const out = []; let i = 0, j = 0, add = 0, del = 0;
     while (i < n || j < m) {
       if (i < n && j < m && A[i] === B[j]) { out.push(`  ${esc(A[i])}`); i++; j++; }
-      else if (j < m && (i >= n || L[i][j + 1] >= L[i + 1][j])) { out.push(`<ins>+ ${esc(B[j])}</ins>`); j++; add++; }
-      else { out.push(`<del>- ${esc(A[i])}</del>`); i++; del++; }
+      else if (i < n && (j >= m || L[i + 1][j] >= L[i][j + 1])) { out.push(`<del>- ${esc(A[i])}</del>`); i++; del++; }
+      else { out.push(`<ins>+ ${esc(B[j])}</ins>`); j++; add++; }
     }
     // keep 3 lines of context around the changes
     const keep = out.map((l) => l.startsWith("<"));

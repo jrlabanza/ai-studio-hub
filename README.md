@@ -303,8 +303,9 @@ domain in front. It is part of the hub itself (no container; nothing to start or
   kind is detected (has `index.html` → **web app**; code files → **script**; otherwise **document**) and can be changed.
 * **Change it here:** file tree (add, upload more, rename, delete), a code editor (line numbers, Tab / Shift+Tab
   indenting, Ctrl+S, unsaved-changes guard) and a live **Preview** of the draft. **✦ Assistant** asks the hub
-  Assistant's local model (the same `ai-assistant-llm` Ollama container) to change the open file; you see the change
-  line by line and apply it to the editor, nothing is saved until you press Save. It uses the GPU only when it is free
+  Assistant's local model (the same `ai-assistant-llm` Ollama container) to change the open file. It answers with exact
+  find-and-replace edits that the hub places (so lines it was not asked about cannot change); you see the change line
+  by line and apply it to the editor, nothing is saved until you press Save. About 20-30 s on the CPU for a small file. It uses the GPU only when it is free
   - it never pushes a studio out - and the CPU otherwise (slower). Files up to 12 k characters.
 * **Publish** freezes the draft as an immutable **version** (vN): every file copied, hashed (sha256, plus one hash of
   the set) and made read-only; *History → Verify* recomputes the hashes against the record. Name a link when you
