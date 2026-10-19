@@ -434,6 +434,15 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .as-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .as-grid .as-f input { width: 100%; box-sizing: border-box; }
 .as-head .chip.filter { cursor: pointer; }
+.as-refs { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+.as-refs td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.as-refs td:first-child { white-space: nowrap; font-weight: 600; color: var(--text-2); width: 1%; }
+.as-parts { display: flex; flex-direction: column; gap: 12px; }
+.as-part { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--panel-2); }
+.as-part.kept { opacity: .8; }
+.as-part-head { display: flex; align-items: center; gap: 8px; }
+.as-part-head .btn { margin-left: auto; }
+.as-part textarea { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-family: var(--mono); font-size: 12px; line-height: 1.45; resize: vertical; }
 .as-head .chip.filter.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .as-head .chip.filter:disabled { opacity: .55; cursor: not-allowed; }
 .as-side { overflow-x: hidden; }
@@ -526,6 +535,61 @@ kbd { font-family: var(--mono); font-size: 12.5px; background: var(--panel-3); b
 .queue-banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 8px; max-width: min(720px, 92%); padding: 9px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--accent); box-shadow: var(--shadow); font-size: 13.5px; color: var(--text); }
 .queue-banner b { color: var(--accent); white-space: nowrap; }
 .queue-banner .spinner { flex: none; }
+.queue-banner .btn { flex: none; }
+button.chip.queue { cursor: pointer; font: inherit; font-size: 13px; color: var(--text); }
+.queue-card { margin-bottom: 20px; }
+.queue-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.queue-list .empty { padding: 10px 0; }
+.q-row { display: grid; grid-template-columns: 22px 26px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--panel-2); }
+.q-row.running { border-color: var(--tool, var(--line-2)); }
+.q-pos { font-weight: 800; font-size: 13px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.q-row.running .q-pos { color: var(--busy); }
+.q-ico svg { width: 20px; height: 20px; }
+.q-main { min-width: 0; font-size: 13.5px; }
+.q-main .q-what { color: var(--text-2); }
+.q-main small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-modal .lead, .cleanup-review .lead { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; }
+.queue-modal .field { border-bottom: 0; }
+
+/* ---------------------------------------------------------------- storage */
+.storage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 18px; align-items: start; }
+.storage-disk { grid-column: 1 / -1; }
+.storage-disk .stack-legend { flex-wrap: wrap; }
+.storage-studio .sm-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.storage-studio .sm-head .tool-num { font-size: 28px; }
+.storage-studio .sm-head > div:nth-child(2) { min-width: 0; flex: 1; }
+.storage-studio .lead { margin: 2px 0 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-total { font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+.storage-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--panel-3); margin-bottom: 10px; }
+.storage-bar .seg { display: block; height: 100%; border-right: 1px solid var(--panel); }
+.storage-bar.disk { height: 14px; border-radius: 7px; }
+.storage-cats { width: 100%; border-collapse: collapse; font-size: 13px; }
+.storage-cats td { padding: 6px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.storage-cats td:nth-child(2), .storage-cats td:nth-child(3) { text-align: right; color: var(--muted); white-space: nowrap; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.storage-cats td:nth-child(3) { color: var(--text); font-weight: 600; }
+.storage-cats tr:last-child td { border-bottom: 0; }
+.storage-cats .pill { padding: 2px 8px; font-size: 11px; margin-left: 6px; }
+.cleanup { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 8px; }
+.cleanup-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.cleanup-cat { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius-s); cursor: pointer; }
+.cleanup-cat:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.cleanup-cat.empty { opacity: .55; cursor: default; }
+.cleanup-cat input { margin-top: 3px; accent-color: var(--accent); }
+.cc-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; }
+.cc-main small { color: var(--muted); font-size: 12px; }
+.cc-main .cc-warn { color: var(--warn); }
+.cc-size { font-size: 13px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cleanup-actions { display: flex; gap: 12px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.cleanup-list { max-height: 48vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-s); padding: 6px 12px; margin-bottom: 14px; }
+.cleanup-list details { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.cleanup-list details:last-child { border-bottom: 0; }
+.cleanup-list summary { cursor: pointer; font-size: 13.5px; }
+.cleanup-list ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cleanup-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; font-size: 12.5px; }
+.cleanup-list li .mono { font-family: var(--mono); word-break: break-all; color: var(--text-2); }
+.cleanup-list li em { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cleanup-list li small { grid-column: 1 / -1; color: var(--muted); }
+.mono { font-family: var(--mono); }
 
 /* ---------------------------------------------------------------- Cinema look (default: html[data-look="cinema"])
    The AI-film-studio palette, matching Video Studio's Cinema look: near-black layered surfaces, white type, 8 %

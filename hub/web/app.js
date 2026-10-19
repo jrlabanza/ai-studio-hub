@@ -103,7 +103,7 @@
   // ------------------------------------------------------------------ router
   function route() {
     const hash = location.hash || "#/home";
-    const m = hash.match(/^#\/(home|tool|library|models|settings|assistant)(?:\/(\w+))?/);
+    const m = hash.match(/^#\/(home|tool|library|models|settings|assistant|storage)(?:\/(\w+))?/);
     const view = m ? m[1] : "home";
     const tool = m && m[2];
     showView(view, tool);
@@ -130,13 +130,14 @@
     } else {
       S.tool = null;
       num.hidden = true;
-      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings", assistant: "Assistant" }[view] || "Home";
-      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU", assistant: "Describe it - the assistant picks the model, LoRAs and prompt, then the studio renders" }[view] || "";
+      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings", assistant: "Assistant", storage: "Storage" }[view] || "Home";
+      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU", assistant: "Describe it - the assistant picks the model, LoRAs and prompt, then the studio renders", storage: "Space each studio uses - and a clean-up that only runs when you confirm it" }[view] || "";
       if (view === "assistant" && window.Assistant) window.Assistant.show();
       sendFocus(null);
       if (view === "library") loadLibrary(true);
       if (view === "models") { if (tool) S.models.tool = tool; loadModels(); }
       if (view === "settings") renderSettings(true);
+      if (view === "storage") loadStorage(false);
     }
     if (view === "home") { renderHome(); loadRecent(); }
   }
@@ -361,7 +362,9 @@
         $(".job-meta", job).innerHTML = `<span>${esc(s.job.message || "")}</span><span>${esc(s.job.percent != null ? Math.round(s.job.percent) + "%" : "")}${s.job.eta ? " · " + esc(fmtEta(s.job.eta)) : ""}${s.job.queued ? ` · ${s.job.queued} queued` : ""}</span>`;
       } else job.hidden = true;
       const note = $(".note", card);
-      const noteText = !t.installed ? t.install_note : (!t.model_present && t.model_note ? t.model_note : "");
+      const wd = t.watchdog;
+      const wdText = wd ? `Watchdog ${wd.dry_run ? "would have restarted" : "restarted"} ${t.short} ${fmtAgo(wd.ts)}: ${wd.reason}` : "";
+      const noteText = !t.installed ? t.install_note : (!t.model_present && t.model_note ? t.model_note : wdText);
       note.hidden = !noteText; note.textContent = noteText;
       const running = t.state === "running";
       const unloadable = t.supports_unload !== false;
@@ -419,6 +422,50 @@
   // ------------------------------------------------------------------ the GPU queue
   // Generate requests from every studio wait in one queue in the hub and run one after another; a model is only
   // switched between jobs. The chip lists the order; the studio you are looking at says where its request stands.
+  // What a queued request is, from the route it came in on (the claim's "METHOD /path").
+  const REQUEST_NAMES = [[/\/api\/engine\/(start|restart)/, "Start the video engine"], [/\/api\/generate/, "Generate"], [/\/api\/enhance/, "Rewrite the prompt"],
+    [/\/api\/describe/, "Describe a clip"], [/\/api\/media\/cutout/, "Cut out a picture"], [/\/api\/media\/mask_preview/, "Mask preview"],
+    [/\/api\/model(s)?\/load/, "Load the model"], [/\/api\/tokenizer\//, "Load the tokenizer"], [/\/api\/tts\//, "Speech"], [/\/api\/drama\//, "Drama scene"],
+    [/\/api\/dub/, "Dubbing"], [/\/api\/sts/, "Speech to speech"], [/\/api\/transcribe/, "Transcribe"], [/\/api\/plan/, "Plan a song"], [/\/api\/lyrics/, "Write lyrics"],
+    [/\/api\/songs\//, "Song edit"], [/txt2img/, "Text to image"], [/img2img/, "Image to image"], [/queue\/join|predict/, "Generate"], [/extra-/, "Upscale"]];
+  const requestName = (reason) => { const r = String(reason || ""); const hit = REQUEST_NAMES.find(([re]) => re.test(r)); return hit ? hit[1] : (r.split(" ").pop() || "Request"); };
+  const fmtWait = (since) => { const s = Math.max(0, Date.now() / 1000 - since); return s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min`; };
+
+  function queueRows(q, withButtons) {
+    return q.map((e) => {
+      const color = TOOL_COLORS[e.tool] || "var(--muted)";
+      if (e.status === "running") return `<li class="q-row running" style="--tool:${color}"><span class="q-pos">▶</span><span class="q-ico">${studioIcon(e.tool)}</span>
+        <div class="q-main"><b>${esc(e.name)}</b> <span class="q-what">running${e.title ? ` - ${esc(e.title)}` : ""}</span><small>${esc(e.message || "")}${e.percent != null ? ` · ${Math.round(e.percent)}%` : ""}</small></div></li>`;
+      const needs = [e.need_vram_gb ? `${e.need_vram_gb} GB VRAM` : "", e.need_ram_gb ? `${e.need_ram_gb} GB RAM` : ""].filter(Boolean).join(" · ");
+      const gives = e.gives_up_at ? ` · gives up in ${Math.max(0, Math.round((e.gives_up_at - Date.now() / 1000) / 60))} min` : "";
+      return `<li class="q-row" style="--tool:${color}"><span class="q-pos">${e.position}</span><span class="q-ico">${studioIcon(e.tool)}</span>
+        <div class="q-main"><b>${esc(e.name)}</b> <span class="q-what">${esc(requestName(e.reason))}</span>
+          <small>${esc(e.blocked || "waiting its turn")} · waiting ${fmtWait(e.since)}${needs ? ` · needs ${esc(needs)}` : ""}${gives}</small></div>
+        ${withButtons ? `<button class="btn small ghost danger-text" data-skip="${esc(e.id)}" title="Take this request out of the queue - ${esc(e.name)} gets an error and does not run it">Skip</button>` : ""}</li>`;
+    }).join("");
+  }
+
+  async function skipQueued(id) {
+    const e = (S.queue || []).find((x) => x.id === id);
+    if (!e) return;
+    if (!confirm(`Skip ${e.name}'s "${requestName(e.reason)}"? It is taken out of the GPU queue and does not run; ${e.name} shows an error.`)) return;
+    try { await api(`/api/queue/${id}/skip`, { method: "POST" }); toast(`${e.name}: request skipped`, "warn"); }
+    catch (err) { toast(err.message, "error"); }
+  }
+
+  function openQueue() {
+    const q = S.queue || [];
+    const wait = (S.state && S.state.settings.claim_wait_max_min) || 0;
+    const opts = [[0, "never - wait as long as it takes"], [10, "10 min"], [30, "30 min"], [60, "1 hour"], [120, "2 hours"], [240, "4 hours"]];
+    if (!opts.some(([v]) => v === wait)) opts.push([wait, `${wait} min`]);
+    openModal(`<div class="queue-modal"><div class="eyebrow">One job on the GPU at a time</div><h3 class="serif" style="font-size:26px;margin:4px 0 6px">GPU queue</h3>
+      <p class="lead">Requests from every studio wait here in arrival order while another studio's job runs, so two heavy jobs never overlap and run out of memory. A studio's own follow-up requests (an engine restart, a prompt rewrite) never wait behind its own job.</p>
+      <ol class="queue-list" id="queueModalList">${queueRows(q, true) || `<li class="empty">Nothing is queued.</li>`}</ol>
+      <div class="field"><label>Queued requests give up after</label><div class="help">Applies to requests waiting now too. A request that gives up (or is skipped) returns an error to its studio.</div>
+        <div class="control"><select id="queueWaitMax">${opts.map(([v, l]) => `<option value="${v}" ${v === wait ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div></div></div>`, true);
+    $("#queueWaitMax").onchange = async (ev) => { try { await api("/api/settings", { method: "PUT", body: { claim_wait_max_min: parseFloat(ev.target.value) } }); toast("Saved", "ok", "", 2000); } catch (err) { toast(err.message, "error"); } };
+  }
+
   function renderQueue(q) {
     S.queue = q;
     const waiting = q.filter((e) => e.status === "waiting");
@@ -427,17 +474,50 @@
     if (waiting.length) {
       $("#chipQueueNum").textContent = waiting.length;
       $("#chipQueueText").textContent = "waiting";
-      chip.title = "GPU queue - runs in this order, one job at a time:\n" + q.map((e) => e.status === "running"
+      chip.title = "GPU queue - runs in this order, one job at a time (click for details, skip):\n" + q.map((e) => e.status === "running"
         ? `▶ ${e.name}${e.title ? ` - ${e.title}` : ""}${e.percent != null ? ` (${Math.round(e.percent)}%)` : ""}`
-        : `${e.position}. ${e.name}`).join("\n");
+        : `${e.position}. ${e.name} - ${requestName(e.reason)}`).join("\n");
     }
+    const card = $("#queueCard");
+    if (card) { card.hidden = !waiting.length; if (waiting.length) $("#queueCardList").innerHTML = queueRows(q, true); }
+    const ml = $("#queueModalList");
+    if (ml && !$("#modal").hidden) ml.innerHTML = queueRows(q, true) || `<li class="empty">Nothing is queued.</li>`;
     const banner = $("#queueBanner");
     const mine = S.view === "tool" ? waiting.find((e) => e.tool === S.tool) : null;
     banner.hidden = !mine;
     if (mine) {
       const ahead = q.slice(0, q.indexOf(mine)).map((e) => e.status === "running" ? `${e.name} (running)` : e.name);
-      banner.innerHTML = `<span class="spinner"></span><span><b>Queued #${mine.position}</b> in the GPU queue · starts after ${esc(ahead.join(" → ") || "the current job")}. It runs on its own - you can leave this page.</span>`;
+      banner.innerHTML = `<span class="spinner"></span><span><b>Queued #${mine.position}</b> in the GPU queue · starts after ${esc(ahead.join(" → ") || "the current job")}. It runs on its own - you can leave this page.</span>
+        <button class="btn small ghost" data-queue-open>Queue</button><button class="btn small ghost danger-text" data-skip="${esc(mine.id)}">Skip</button>`;
     }
+  }
+
+  // ------------------------------------------------------------------ job notifications
+  // The hub announces every job that ran longer than a minute (Settings → Notifications). The toast always shows; a
+  // browser notification only when it is turned on and allowed. Its text is the studio, the kind of job and how it
+  // ended - the prompt only with "Include the prompt" on.
+  const STATUS_TEXT = { succeeded: "finished", failed: "failed", cancelled: "was cancelled", interrupted: "was interrupted", finished: "finished" };
+  function onJobDone(ev) {
+    if (!ev.notify) return;
+    const st = S.state ? S.state.settings : {};
+    const mins = ev.seconds >= 90 ? `${Math.round(ev.seconds / 60)} min` : `${ev.seconds} s`;
+    const head = `${ev.name}: ${ev.label} ${STATUS_TEXT[ev.status] || ev.status}`;
+    const bad = ev.status === "failed" || ev.status === "interrupted";
+    toast(head, bad ? "error" : "ok", `after ${mins}${st.notify_push_details && ev.title ? ` · ${ev.title}` : ""}`, 10000);
+    if (st.notify_browser && "Notification" in window && Notification.permission === "granted") {
+      try {
+        const n = new Notification(head, { body: `${ev.status} after ${mins}${st.notify_push_details && ev.title ? `\n${ev.title}` : ""}`, tag: `${ev.tool}:${ev.key}`, icon: "/brand/favicon.svg" });
+        n.onclick = () => { window.focus(); location.hash = `#/tool/${ev.tool}`; n.close(); };
+      } catch (e) { /* some browsers only allow notifications from a service worker */ }
+    }
+  }
+  async function askNotifyPermission() {
+    if (!("Notification" in window)) { toast("This browser has no notifications", "warn"); return false; }
+    if (!window.isSecureContext) { toast("Browser notifications need the hub opened as http://127.0.0.1 or localhost", "warn", "Over the network the browser blocks them; the push URL works anywhere."); return false; }
+    if (Notification.permission === "granted") return true;
+    const p = await Notification.requestPermission();
+    if (p !== "granted") toast("Notifications are blocked for this page", "warn", "Allow them in the browser's site settings.");
+    return p === "granted";
   }
 
   // ------------------------------------------------------------------ activity
@@ -462,7 +542,11 @@
       const name = nameOf(ev.tool);
       if (ev.state === "error" && ev.error) toast(`${name}: ${ev.error.split("\n")[0]}`, "error", "", 9000);
       else if (ev.state === "running") toast(`${name} is ready`, "ok");
-    } else if (ev.type === "log" && (ev.level === "error" || ev.level === "warn") && ev.source) {
+    } else if (ev.type === "job") {
+      onJobDone(ev);
+    } else if (ev.type === "watchdog") {
+      toast(`Watchdog ${ev.dry_run ? "(dry run) would restart" : "restarted"} ${ev.name}`, "warn", ev.reason, 12000);
+    } else if (ev.type === "log" && (ev.level === "error" || ev.level === "warn") && ev.source && ev.source !== "jobs" && ev.source !== "watchdog") {
       toast(ev.message, ev.level, "", 8000);
     }
     renderActivity($("#activityList"), 8);
@@ -471,7 +555,7 @@
 
   function renderActivity(ul, limit) {
     if (!ul) return;
-    const evs = S.events.filter((e) => e.type === "log" || e.type === "claim" || e.type === "waiting").slice(-limit).reverse();
+    const evs = S.events.filter((e) => (e.type === "log" && e.level !== "debug") || e.type === "claim" || e.type === "waiting").slice(-limit).reverse();
     ul.innerHTML = evs.map((e) => {
       const who = e.tool ? (toolOf(e.tool) ? toolOf(e.tool).short : e.tool) : (e.source === "orchestrator" ? "GPU" : "Hub");
       const color = e.tool ? (TOOL_COLORS[e.tool] || "var(--muted)") : "var(--muted)";
@@ -596,6 +680,10 @@
     return handoffTargets().then((ts) => { const t = ts.find((x) => x.tool === tool); const s = t && t.slots.find((x) => x.id === slotId); if (!s) throw new Error("no such slot"); return sendTo(it, tool, s); });
   };
 
+  // for tests: render a made-up queue / job event without running anything (hubTest.queue([...]), hubTest.job({...}))
+  window.hubTest = { queue: (q) => renderQueue(q), job: (ev) => onJobDone(ev), openQueue: () => openQueue(),
+    watchdog: (tool, a) => { const t = toolOf(tool); if (t) { t.watchdog = a; renderHome(); } }, event: (ev) => onEvent(ev) };
+
   // ------------------------------------------------------------------ settings
   const SETTINGS_SCHEMA = [
     { title: "Graphics card", lead: "How the hub shares one GPU between your studios.", fields: [
@@ -608,6 +696,19 @@
       { key: "vram_headroom_gb", label: "VRAM headroom", type: "number", step: 0.1, min: 0, max: 8, unit: "GB", help: "Extra free memory the hub tries to keep for the desktop and the browser." },
       { key: "release_ollama", label: "Release Ollama models when VRAM is short", type: "bool", help: "Music Studio's lyric writer uses a local Ollama model, which stays resident for minutes." },
       { key: "pin_memory", label: "Pinned memory in the studios", type: "bool", help: "Page-locked RAM speeds up the CPU↔GPU weight transfers of offload modes. Applies the next time a studio starts; each studio can override it in its own settings. Turn off when RAM is short (studios default to off on AMD)." },
+    ] },
+    { title: "Notifications", lead: "When a job that ran longer than a minute finishes or fails in any studio.", fields: [
+      { key: "notify_browser", label: "Browser notifications", type: "bool", help: "Shown by this browser while a hub tab is open (it asks for permission when you turn this on)." },
+      { key: "notify_push_url", label: "Push URL", type: "text", placeholder: "https://ntfy.sh/your-own-topic", help: "Optional: an ntfy.sh-style topic URL of your own; the hub POSTs a short message to it. Off when empty. It sends the studio, how the job ended, the kind of job and how long it ran - no prompts or files." },
+      { key: "notify_push_details", label: "Include the prompt", type: "bool", help: "Also send the job's title (the start of its prompt) and an error message. Off by default." },
+      { key: "notify_min_s", label: "Only for jobs longer than", type: "number", step: 10, min: 0, max: 7200, unit: "s" },
+      { key: "_notify_test", label: "Test the push URL", type: "button", text: "Send a test", help: "Sends a sample message (no details) to the push URL." },
+    ] },
+    { title: "Health watchdog", lead: "Restarts a studio that hung - never one whose job is still moving.", fields: [
+      { key: "watchdog_enabled", label: "Watch the studios", type: "bool", help: "Checks every 30 s. Before a restart it also checks that the GPU and (Video Studio) the engine log have gone quiet. At most one restart per studio per 30 min; it shows in Activity and on the studio's card." },
+      { key: "watchdog_stall_min", label: "Restart when a running job has not moved for", type: "number", step: 1, min: 5, max: 240, unit: "min", help: "Its progress, stage and step all unchanged. Video Studio's MiniMax H3 moves every ~20 s step." },
+      { key: "watchdog_health_min", label: "… or the studio has not answered for", type: "number", step: 1, min: 2, max: 120, unit: "min", help: "Every status check failed while its container is up." },
+      { key: "watchdog_dry_run", label: "Dry run", type: "bool", help: "Only log what it would restart." },
     ] },
     { title: "Appearance", lead: "The theme of the shell and, if you like, of the studios inside it.", fields: [
       { key: "theme", label: "Theme", type: "select", options: [["light", "Light"], ["dark", "Dark"]] },
@@ -638,6 +739,12 @@
         + `<section class="card"><h3>Keyboard</h3><p class="lead">Shortcuts work anywhere in the shell.</p><div class="shortcuts"><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>${S.state.order.length}</kbd><span>Open a studio</span><kbd>Alt</kbd>+<kbd>H</kbd><span>Home</span><kbd>Alt</kbd>+<kbd>L</kbd><span>Library</span><kbd>Alt</kbd>+<kbd>M</kbd><span>Models</span><kbd>Alt</kbd>+<kbd>A</kbd><span>Activity</span><kbd>Alt</kbd>+<kbd>T</kbd><span>Theme</span><kbd>Alt</kbd>+<kbd>G</kbd><span>Free the GPU</span></div>
           <p class="lead" style="margin-top:14px">${esc(st.app.name)} ${esc(st.app.version)} · ${esc(st.app.platform || "")} · hub on port ${st.app.hub_port} · <a href="/api/docs" target="_blank">API</a></p></section>`;
       grid.querySelectorAll(".field").forEach((f) => f.addEventListener("change", onSettingChange));
+      grid.querySelectorAll("[data-action='_notify_test']").forEach((b) => b.addEventListener("click", async () => {
+        b.disabled = true;
+        try { const r = await api("/api/notify/test", { method: "POST", body: {} }); toast("Test sent", "ok", r.info, 4000); }
+        catch (err) { toast(err.message, "error"); }
+        b.disabled = false;
+      }));
       grid.querySelectorAll(".switch").forEach((b) => b.addEventListener("click", () => { b.classList.toggle("on"); onSettingChange({ currentTarget: b.closest(".field, .tool-row"), target: b }); }));
       loadDoctor();
     }
@@ -646,7 +753,8 @@
 
   function control(f, val) {
     if (f.type === "bool") return `<button type="button" class="switch ${val ? "on" : ""}" data-key="${f.key}" aria-label="${esc(f.label)}"></button>`;
-    if (f.type === "password" || f.type === "text") return `<input type="${f.type}" data-key="${f.key}" value="${esc(val || "")}" placeholder="${f.type === "password" ? "paste a token" : ""}" autocomplete="off">`;
+    if (f.type === "button") return `<button type="button" class="btn small" data-action="${f.key}">${esc(f.text || f.label)}</button>`;
+    if (f.type === "password" || f.type === "text") return `<input type="${f.type}" data-key="${f.key}" value="${esc(val || "")}" placeholder="${esc(f.placeholder || (f.type === "password" ? "paste a token" : ""))}" autocomplete="off" spellcheck="false">`;
     if (f.type === "select") return `<select data-key="${f.key}">${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(val) === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
     return `<input type="number" data-key="${f.key}" value="${esc(val)}" step="${f.step || 1}" ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""}>${f.unit ? `<span class="unit">${esc(f.unit)}</span>` : ""}`;
   }
@@ -661,6 +769,7 @@
     else if (ctl.tagName === "SELECT") val = ctl.value;
     else if (ctl.type === "password" || ctl.type === "text") val = ctl.value.trim();
     else val = parseFloat(ctl.value);
+    if (key === "notify_browser" && val && !(await askNotifyPermission())) { ctl.classList.remove("on"); return; }
     try {
       S.settingsDirty = true;
       await api("/api/settings", { method: "PUT", body: { [key]: val } });
@@ -954,6 +1063,111 @@
     }).join("");
   }
 
+  // ------------------------------------------------------------------ storage
+  // Space per studio and per category (hub/disk.py). Video Studio has a clean-up: tick categories (orphans and Trash
+  // older than 7 days are ticked by default; anything that belongs to a job in History only when you tick it), review
+  // the exact list in a dry run, then confirm. Nothing is deleted any other way.
+  S.storage = { data: null, plan: null, ticked: null, loading: false };
+  const CAT_TONES = ["var(--text-2)", "var(--muted)", "var(--faint)", "var(--line-2)"];
+
+  async function loadStorage(force) {
+    const st = S.storage;
+    if (st.loading) return;
+    st.loading = true;
+    $("#storageMeta").innerHTML = `<span class="spinner"></span> measuring…`;
+    try {
+      const [data, plan] = await Promise.all([api(`/api/storage${force ? "?force=1" : ""}`), api("/api/storage/video/plan").catch(() => null)]);
+      st.data = data; st.plan = plan;
+      if (plan && !st.ticked) st.ticked = new Set(plan.categories.filter((c) => c.cleanable && c.default).map((c) => c.id));
+      renderStorage();
+    } catch (e) { $("#storageBody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+    st.loading = false;
+  }
+
+  function renderStorage() {
+    const { data, plan } = S.storage; if (!data) return;
+    const d = data.disk;
+    $("#storageMeta").textContent = `measured ${fmtAgo(data.scanned_at)}` + (d ? ` · disk: ${fmtBytes(d.free)} free of ${fmtBytes(d.total)}` : "");
+    const max = Math.max(1, ...data.studios.map((x) => x.total));
+    const diskCard = d ? `<section class="card storage-disk"><div class="card-head"><div><div class="eyebrow">This disk</div><h3>${fmtBytes(d.used)} used · ${fmtBytes(d.free)} free</h3></div></div>
+      <div class="stack storage-bar disk">${data.studios.map((x) => `<i class="seg" title="${esc(x.name)} · ${fmtBytes(x.total)}" style="width:${(x.total / d.total) * 100}%;background:${x.color}"></i>`).join("")}<i class="seg" title="Everything else on this disk" style="width:${Math.max(0, (d.used - data.studios.reduce((a, x) => a + x.total, 0)) / d.total) * 100}%;background:var(--line-2)"></i></div>
+      <div class="stack-legend">${data.studios.map((x) => `<span><b class="sw" style="background:${x.color}"></b>${esc(x.name)} <em>${fmtBytes(x.total) || "0 B"}</em></span>`).join("")}<span><b class="sw" style="background:var(--line-2)"></b>Other files <em>${fmtBytes(Math.max(0, d.used - data.studios.reduce((a, x) => a + x.total, 0)))}</em></span></div></section>` : "";
+    const cards = data.studios.map((x) => {
+      const cats = x.categories.filter((c) => c.bytes > 0 || c.cleanable);
+      const sum = Math.max(1, cats.filter((c) => !(c.id === "models" && /shared/.test(c.label))).reduce((a, c) => a + c.bytes, 0));
+      const bar = cats.filter((c) => c.bytes > 0 && !(c.id === "models" && /shared/.test(c.label))).map((c, i) => `<i class="seg" title="${esc(c.label)} · ${fmtBytes(c.bytes)}" style="width:${(c.bytes / sum) * (x.total / max) * 100}%;background:${c.cleanable ? "var(--accent)" : CAT_TONES[i % CAT_TONES.length]}"></i>`).join("");
+      return `<section class="card storage-studio" style="--tool:${x.color}">
+        <div class="sm-head"><div class="tool-num">${studioIcon(x.tool)}</div><div><h3>${esc(x.name)}</h3><p class="lead mono" title="${esc(x.dir)}">${esc(x.dir)}</p></div><span class="storage-total">${fmtBytes(x.total) || "0 B"}</span></div>
+        <div class="stack storage-bar">${bar}</div>
+        <table class="storage-cats">${cats.map((c) => `<tr class="${c.cleanable ? "cleanable" : ""}"><td title="${esc(c.help || "")}">${esc(c.label)}${c.cleanable ? ` <span class="pill warn">can be cleaned</span>` : ""}</td><td>${c.files ? c.files.toLocaleString() + (c.files === 1 ? " file" : " files") : ""}</td><td>${fmtBytes(c.bytes) || "0 B"}</td></tr>`).join("")}</table>
+        ${x.cleanup && plan ? cleanupPanel(plan) : ""}
+      </section>`;
+    }).join("");
+    $("#storageBody").innerHTML = diskCard + cards;
+  }
+
+  function cleanupPanel(plan) {
+    const ticked = S.storage.ticked || new Set();
+    const cats = plan.categories.filter((c) => c.cleanable || c.id === "orphans");
+    const selBytes = cats.filter((c) => ticked.has(c.id)).reduce((a, c) => a + c.bytes, 0);
+    const selItems = cats.filter((c) => ticked.has(c.id)).reduce((a, c) => a + c.items.length, 0);
+    const trashNeedsApi = !plan.api && cats.some((c) => c.id.startsWith("trash") && c.items.length);
+    return `<div class="cleanup">
+      <div class="cleanup-head"><b>Clean up</b><span class="as-dim">job list from Video Studio's ${plan.api ? "API and database" : "database (read-only - the studio is not running)"} · ${plan.jobs} jobs</span></div>
+      ${cats.map((c) => { const history = c.id.startsWith("history"); const empty = !c.items.length;
+        return `<label class="cleanup-cat ${history ? "history" : ""} ${empty ? "empty" : ""}" title="${esc(c.help)}">
+          <input type="checkbox" data-cat="${c.id}" ${ticked.has(c.id) ? "checked" : ""} ${empty || !c.cleanable ? "disabled" : ""}>
+          <span class="cc-main"><b>${esc(c.label)}</b><small>${esc(c.help)}</small>${history ? `<small class="cc-warn">Belongs to jobs that are still in History - only if you tick it.</small>` : ""}</span>
+          <span class="cc-size">${c.items.length ? `${c.items.length} · ${fmtBytes(c.bytes)}` : "none"}</span></label>`; }).join("")}
+      ${trashNeedsApi ? `<div class="note warn">Video Studio is not running: Trash items are deleted through its own API, so start it to empty the Trash. <button class="btn small" data-storage-act="start">Start Video Studio</button></div>` : ""}
+      <div class="cleanup-actions"><button class="btn primary" data-storage-act="review" ${selItems ? "" : "disabled"}>Review ${selItems} item${selItems === 1 ? "" : "s"} · ${fmtBytes(selBytes) || "0 B"}…</button>
+        <span class="as-dim">Nothing is deleted until you confirm the list.</span></div>
+    </div>`;
+  }
+
+  function onStorageChange(e) {
+    const cb = e.target.closest("[data-cat]"); if (!cb) return;
+    const t = S.storage.ticked || (S.storage.ticked = new Set());
+    if (cb.checked) t.add(cb.dataset.cat); else t.delete(cb.dataset.cat);
+    renderStorage();
+  }
+
+  async function onStorageClick(e) {
+    const b = e.target.closest("[data-storage-act]"); if (!b) return;
+    if (b.dataset.storageAct === "start") { await api("/api/tools/video/start", { method: "POST" }).catch((err) => toast(err.message, "error")); toast("Video Studio is starting", "ok", "Rescan when it is ready."); return; }
+    if (b.dataset.storageAct === "review") reviewCleanup();
+  }
+
+  async function reviewCleanup() {
+    const { plan, ticked } = S.storage;
+    const categories = [...ticked];
+    const items = plan.categories.filter((c) => ticked.has(c.id)).flatMap((c) => c.items.map((it) => it.id));
+    let dry;
+    try { dry = await api("/api/storage/video/cleanup", { method: "POST", body: { categories, items, dry_run: true } }); }
+    catch (err) { toast(err.message, "error"); return; }
+    const byCat = {};
+    for (const it of dry.deleted) (byCat[it.category] = byCat[it.category] || []).push(it);
+    const label = (cid) => (plan.categories.find((c) => c.id === cid) || {}).label || cid;
+    const nFiles = dry.deleted.reduce((a, it) => a + it.files.length, 0);
+    openModal(`<div class="cleanup-review"><div class="eyebrow">Video Studio · confirm the clean-up</div>
+      <h3 class="serif" style="font-size:26px;margin:4px 0 6px">Delete ${dry.deleted.length} item${dry.deleted.length === 1 ? "" : "s"} · ${fmtBytes(dry.bytes) || "0 B"}?</h3>
+      <p class="lead">Exactly these ${nFiles} file${nFiles === 1 ? "" : "s"} go. Trash jobs are deleted through Video Studio (as "Delete for good" in its Trash); the other files are removed from disk. This cannot be undone.</p>
+      ${dry.failed.length ? `<div class="note warn">${dry.failed.length} item(s) cannot be deleted now: ${esc(dry.failed[0].why)}</div>` : ""}
+      <div class="cleanup-list">${Object.entries(byCat).map(([cid, its]) => `<details open><summary><b>${esc(label(cid))}</b> · ${its.length} · ${fmtBytes(its.reduce((a, it) => a + it.bytes, 0))}</summary>
+        <ul>${its.map((it) => `<li><span class="mono">${it.files.map(esc).join("<br>")}</span><em>${fmtBytes(it.bytes) || "0 B"}</em>${it.label && !it.files.some((f) => f.endsWith(it.label)) ? `<small>${esc(it.label)}</small>` : ""}</li>`).join("")}</ul></details>`).join("")}</div>
+      <div class="cleanup-actions"><button class="btn danger" id="cleanupGo" ${dry.deleted.length ? "" : "disabled"}>Delete ${dry.deleted.length} item${dry.deleted.length === 1 ? "" : "s"} (${fmtBytes(dry.bytes) || "0 B"})</button><button class="btn ghost" id="cleanupCancel">Cancel</button></div></div>`, true);
+    $("#cleanupCancel").onclick = closeModal;
+    $("#cleanupGo").onclick = async () => {
+      const go = $("#cleanupGo"); go.disabled = true; go.innerHTML = `<span class="spinner"></span> Deleting…`;
+      try {
+        const r = await api("/api/storage/video/cleanup", { method: "POST", body: { categories, items: dry.deleted.map((it) => it.id), dry_run: false } });
+        closeModal();
+        toast(`Freed ${fmtBytes(r.bytes) || "0 B"}`, r.failed.length ? "warn" : "ok", `${r.deleted.length} deleted${r.failed.length ? ` · ${r.failed.length} failed: ${r.failed[0].why}` : ""}${r.skipped.length ? ` · ${r.skipped.length} skipped` : ""}`, 9000);
+        S.storage.ticked = null; loadStorage(true);
+      } catch (err) { toast(err.message, "error"); go.disabled = false; go.textContent = "Delete"; }
+    };
+  }
+
   // ------------------------------------------------------------------ modal / drawer
   function openModal(html, narrow = false) {
     $("#modalBody").innerHTML = html;
@@ -975,7 +1189,7 @@
     S.es = es;
     es.onopen = () => { S.focusSent = undefined; sendFocus(S.view === "tool" ? S.tool : null); };
     es.addEventListener("state", (e) => { S.connected = true; onState(JSON.parse(e.data)); });
-    for (const type of ["log", "tool", "claim", "waiting", "queue", "summary", "settings", "download"]) {
+    for (const type of ["log", "tool", "claim", "waiting", "queue", "summary", "settings", "download", "job", "watchdog"]) {
       es.addEventListener(type, (e) => { const ev = JSON.parse(e.data); if (type === "settings") { if (S.state) S.state.settings = ev.settings; return; } if (type === "download") { onDownload(ev); return; } onEvent({ type, ...ev }); });
     }
     es.onerror = () => { S.connected = false; $("#conn").classList.add("off"); es.close(); setTimeout(connect, 2500); };
@@ -989,6 +1203,15 @@
     applyLook(currentLook(), false);
     $("#btnCollapse").onclick = () => { document.body.classList.toggle("collapsed"); try { localStorage.setItem("pxx-rail", document.body.classList.contains("collapsed") ? "1" : "0"); } catch (e) { /* ignore */ } };
     $("#btnActivity").onclick = () => toggleDrawer();
+    $("#chipQueue").onclick = openQueue;
+    $("#queueCardOpen").onclick = openQueue;
+    document.addEventListener("click", (e) => {
+      const sk = e.target.closest("[data-skip]"); if (sk) { e.preventDefault(); skipQueued(sk.dataset.skip); return; }
+      if (e.target.closest("[data-queue-open]")) openQueue();
+    });
+    $("#storageRefresh").onclick = () => loadStorage(true);
+    $("#storageBody").addEventListener("click", onStorageClick);
+    $("#storageBody").addEventListener("change", onStorageChange);
     $("#drawerClose").onclick = () => toggleDrawer(false);
     $("#modalClose").onclick = closeModal;
     $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
