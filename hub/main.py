@@ -5,6 +5,7 @@ import asyncio
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import sys
 from contextlib import asynccontextmanager
@@ -43,6 +44,8 @@ def create_app(hub: Hub) -> FastAPI:
     app = FastAPI(title=APP_NAME, version=__version__, lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
     from .assistant.routes import register as register_assistant
     register_assistant(app, hub)
+    from .sandbox.routes import register as register_sandbox
+    register_sandbox(app, hub)
 
     # ------------------------------------------------------------------ shell
     @app.get("/", response_class=HTMLResponse)
@@ -124,6 +127,18 @@ def create_app(hub: Hub) -> FastAPI:
         url = str(data.get("notify_push_url") or "").strip()
         if url and not url.lower().startswith(("http://", "https://")):
             raise HTTPException(400, "The push URL must start with https:// (or http://)")
+        if "sandbox_public_url" in data:
+            pub = str(data["sandbox_public_url"] or "").strip().rstrip("/")
+            if pub and not re.fullmatch(r"https?://[A-Za-z0-9.\-]+(:\d+)?", pub):
+                raise HTTPException(400, "The Sandbox address is just the scheme and host, e.g. https://aihub.com")
+            data["sandbox_public_url"] = pub
+        for key, lo in (("sandbox_max_mb", 1), ("sandbox_max_files", 1), ("sandbox_port", 1024)):
+            if key in data:
+                try:
+                    if float(data[key]) < lo:
+                        raise HTTPException(400, f"{key} must be at least {lo}")
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f"{key} must be a number")
         for key, lo in (("watchdog_stall_min", 5), ("watchdog_health_min", 2)):
             if key in data:
                 try:
