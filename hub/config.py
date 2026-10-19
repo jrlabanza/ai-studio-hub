@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
 import threading
 from dataclasses import asdict, dataclass, field
@@ -20,6 +21,8 @@ LOGS_DIR = DATA_DIR / "logs"
 THUMBS_DIR = DATA_DIR / "thumbs"
 WEB_DIR = HUB_DIR / "web"
 BRAND_DIR = WEB_DIR / "brand"
+# The Sandbox: sandbox.db (records) + projects/<id>/ (files). AI_HUB_SANDBOX_DIR points it elsewhere (tests).
+SANDBOX_DIR = Path(os.environ.get("AI_HUB_SANDBOX_DIR") or DATA_DIR / "sandbox")
 SETTINGS_FILE = DATA_DIR / "settings.json"
 PID_FILE = DATA_DIR / "hub.pid"
 
@@ -93,6 +96,11 @@ class Settings:
     watchdog_stall_min: float = 15.0     # a running job whose progress / stage / step has not changed for this long
     watchdog_health_min: float = 5.0     # a running studio (container up) whose health endpoint has not answered this long
     watchdog_dry_run: bool = False       # only log what it would restart
+    # Sandbox (hub/sandbox): uploaded projects, served from their own port so their code never runs on the hub's origin.
+    sandbox_port: int = 7910             # published links and draft previews (bound like the other ports: bind_host)
+    sandbox_public_url: str = ""         # e.g. https://aihub.com when a reverse proxy maps a domain to the sandbox port
+    sandbox_max_mb: float = 50.0         # largest upload, and largest project (draft) in total
+    sandbox_max_files: int = 500         # most files in one project
     tools: dict[str, dict[str, Any]] = field(default_factory=lambda: copy.deepcopy(DEFAULT_TOOLS))
 
     def to_dict(self) -> dict[str, Any]:

@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from . import __version__
-from .config import APP_NAME, DEFAULT_TOOLS, PLATFORM, ROOT, ensure_dirs, load_settings, tool_present
+from .config import APP_NAME, DEFAULT_TOOLS, PLATFORM, ROOT, SANDBOX_DIR, ensure_dirs, load_settings, tool_present
 from .disk import Disk
 from .events import EventBus
 from .gpu import GpuMonitor
@@ -17,6 +17,7 @@ from .library import Library
 from .models import Models
 from .orchestrator import Orchestrator
 from .process import ManagedProcess
+from .sandbox.store import Store as SandboxStore
 from .tools import TOOL_ORDER, TOOLS
 from .watchdog import Watchdog
 
@@ -40,6 +41,10 @@ class Hub:
         self.started_at = time.time()
         self.hub_port: int = load_settings().hub_port
         self.proxy_ports: dict[str, int] = {}
+        # The Sandbox is hub-native (no container, nothing to start or stop): its records, and the port its
+        # content is served on (run.py binds it; 0 = not bound).
+        self.sandbox = SandboxStore(SANDBOX_DIR)
+        self.sandbox_port: int = 0
         self._bg: list[asyncio.Task] = []
 
     @property
@@ -99,7 +104,8 @@ class Hub:
             tools[tid] = d
         return {
             "app": {"name": APP_NAME, "version": __version__, "hub_port": self.hub_port, "root": str(ROOT),
-                    "uptime_s": round(time.time() - self.started_at), "bind_host": s.bind_host, "platform": PLATFORM},
+                    "uptime_s": round(time.time() - self.started_at), "bind_host": s.bind_host, "platform": PLATFORM,
+                    "sandbox_port": self.sandbox_port},
             "system": self.gpu.snapshot,
             "gpu_history": [[round(ts), used, util] for ts, used, util in self.gpu.history],
             "tools": tools,

@@ -1,6 +1,8 @@
 # hub environment and runtime data
 .venv/
 data/
+# Sandbox uploads and records (covered by data/ - listed so it is never un-ignored by accident)
+data/sandbox/
 __pycache__/
 *.pyc
 

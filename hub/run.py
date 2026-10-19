@@ -22,18 +22,42 @@ from .config import APP_NAME, PID_FILE, ROOT, ensure_dirs, load_settings
 
 
 class Dispatcher:
-    """Routes ASGI connections to an app by the local port they were accepted on."""
+    """Routes ASGI connections to an app by the local port they were accepted on.
 
-    def __init__(self, default: Any, by_port: dict[int, Any]) -> None:
+    ``guard(scope)`` is asked about every request on the hub and studio ports (not on the ``open_ports``, i.e. the
+    Sandbox's own): a True answer refuses it with 403 before any app sees it. It keeps pages from the Sandbox -
+    untrusted uploaded code - from calling the hub API or a studio with fetch, a form or a WebSocket."""
+
+    def __init__(self, default: Any, by_port: dict[int, Any], guard: Any = None, open_ports: set[int] | None = None,
+                 on_refuse: Any = None) -> None:
         self.default = default
         self.by_port = by_port
+        self.guard = guard
+        self.open_ports = open_ports or set()
+        self.on_refuse = on_refuse
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
             return await self.default(scope, receive, send)
         server = scope.get("server")
-        app = self.by_port.get(server[1], self.default) if server else self.default
+        port = server[1] if server else None
+        app = self.by_port.get(port, self.default) if server else self.default
+        if self.guard and port not in self.open_ports and scope["type"] in ("http", "websocket") and self.guard(scope):
+            if self.on_refuse:
+                self.on_refuse(scope)
+            return await _refuse(scope, receive, send)
         return await app(scope, receive, send)
+
+
+async def _refuse(scope, receive, send) -> None:
+    if scope["type"] == "websocket":
+        await receive()                                  # websocket.connect
+        await send({"type": "websocket.close", "code": 1008})
+        return
+    body = b'{"detail":"Requests from Sandbox pages are not allowed on the hub"}'
+    await send({"type": "http.response.start", "status": 403,
+                "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+    await send({"type": "http.response.body", "body": body})
 
 
 def _port_answers(port: int) -> bool:
@@ -122,8 +146,24 @@ def main() -> None:
         by_port[p] = build_proxy_app(tool, hub)
         socks.append(s)
 
+    # The Sandbox's content gets a port of its own, bound like the others; nothing of the hub is served there.
+    from .sandbox.serve import blocks_origin, build_sandbox_app
+
+    sb_sock, sb_port = bind(host, int(settings.sandbox_port or 7910))
+    hub.sandbox_port = sb_port
+    by_port[sb_port] = build_sandbox_app(hub.sandbox)
+    socks.append(sb_sock)
+    refused = {"at": 0.0}
+
+    def on_refuse(scope) -> None:
+        if time.time() - refused["at"] > 10:          # at most one line per 10 s, however hard a page tries
+            refused["at"] = time.time()
+            hub.bus.log(f"Refused a request from a Sandbox page: {scope.get('method', 'WS')} {scope.get('path', '')}",
+                        source="sandbox")
+
     hub_app = create_app(hub)
-    dispatcher = Dispatcher(hub_app, by_port)
+    dispatcher = Dispatcher(hub_app, by_port, guard=lambda scope: blocks_origin(scope, {sb_port}, load_settings().sandbox_public_url),
+                            open_ports={sb_port}, on_refuse=on_refuse)
     config = uvicorn.Config(dispatcher, host=host, port=hub_port, log_level=args.log_level, access_log=False,
                             ws_ping_interval=20, ws_ping_timeout=20, timeout_keep_alive=75, lifespan="on")
     server = uvicorn.Server(config)
@@ -135,6 +175,7 @@ def main() -> None:
     for tool in hub.tools.values():
         if tool.id in hub.proxy_ports:
             print(f"  {tool.spec.name:<13}: http://{browse_host}:{hub.proxy_ports[tool.id]}   (backend on 127.0.0.1:{tool.cfg.get('port')})")
+    print(f"  {'Sandbox':<13}: http://{browse_host}:{sb_port}   (published links and previews - uploaded content only)")
     if host in ("0.0.0.0", "", "*"):
         print("  Listening on every interface - people on your network can use it (see README for the firewall rule).")
     print("  Close this window or press Ctrl+C to stop everything.\n", flush=True)
