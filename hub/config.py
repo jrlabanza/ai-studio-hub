@@ -83,6 +83,16 @@ class Settings:
     civitai_token: str = ""              # Civitai API key for downloads that need it
     assistant_device: str = "auto"       # the assistant's language model: auto (GPU when free, else CPU) | gpu | cpu
     assistant_model: str = "qwen3:4b"    # Ollama model for planning (runs in the ai-assistant-llm container)
+    # Job notifications (hub/jobwatch.py): a job that ran longer than notify_min_s and finished or failed.
+    notify_browser: bool = False         # the shell shows a browser notification (it asks for permission when turned on)
+    notify_push_url: str = ""            # an ntfy.sh-style topic URL to POST to ("" = off); the user's own topic
+    notify_push_details: bool = False    # also send the job's title / prompt text (off: studio, status, kind and time only)
+    notify_min_s: float = 60.0
+    # Health watchdog (hub/watchdog.py): restart a studio whose running job stopped moving, or that stopped answering.
+    watchdog_enabled: bool = True
+    watchdog_stall_min: float = 15.0     # a running job whose progress / stage / step has not changed for this long
+    watchdog_health_min: float = 5.0     # a running studio (container up) whose health endpoint has not answered this long
+    watchdog_dry_run: bool = False       # only log what it would restart
     tools: dict[str, dict[str, Any]] = field(default_factory=lambda: copy.deepcopy(DEFAULT_TOOLS))
 
     def to_dict(self) -> dict[str, Any]:
