@@ -25,6 +25,7 @@ import re
 import stat
 import struct
 import zipfile
+import zlib
 from typing import Any
 
 MAX_DEPTH = 12
@@ -198,15 +199,20 @@ def expand_zip(data: bytes, max_bytes: int, max_files: int) -> dict[str, bytes]:
     total = 0
     for info, path in entries:
         buf = bytearray()
-        with zf.open(info) as fh:
-            while True:
-                chunk = fh.read(1024 * 256)
-                if not chunk:
-                    break
-                buf += chunk
-                total += len(chunk)
-                if len(buf) > info.file_size or total > max_bytes:
-                    raise IntakeError("The zip holds more data than its directory says - refused")
+        try:
+            with zf.open(info) as fh:
+                while True:
+                    chunk = fh.read(1024 * 256)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    total += len(chunk)
+                    if len(buf) > info.file_size or total > max_bytes:
+                        raise IntakeError("The zip holds more data than its directory says - refused")
+        except IntakeError:
+            raise
+        except (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, OSError, zlib.error) as exc:
+            raise IntakeError(f"{path} in the zip cannot be read ({exc.__class__.__name__}) - zip it again")
         if path in files:
             raise IntakeError(f"The zip has {path} twice")
         files[path] = bytes(buf)
