@@ -158,9 +158,25 @@ running and has finished (a *lease*: status is polled every 2.5 s, so without it
 the first studio looked busy and unload its model under its own job). A request that never turns into a job lets the
 lease lapse after 8 s; a request that is still being answered (Forge's txt2img returns when the image is done) holds it.
 
-* The top bar shows **N waiting** while anything is queued; hover it for the order. A studio whose request is waiting
-  shows **Queued #N · starts after …** over its page. It runs on its own - you can leave the page.
-* A queued request waits as long as it takes (Settings → *Queued requests give up after*, 0 = no limit).
+* The top bar shows **N waiting** while anything is queued; hover it for the order, click it for the **GPU queue**
+  dialog (also a card on Home): which studio, what it asked for, its place, why it waits ("waiting for Video Studio to
+  finish"), how long, and its VRAM / RAM need. **Skip** takes a request out of the queue - its studio gets an error
+  (HTTP 409, so it does not retry). A studio whose request is waiting shows **Queued #N · starts after …** over its
+  page, with Skip too. It runs on its own - you can leave the page.
+* A queued request waits as long as it takes (Settings → *Queued requests give up after*, 0 = no limit; the queue
+  dialog has the same choice). A change applies to requests already waiting.
+* **A studio never waits behind itself.** While a studio holds the GPU (its job runs, or its granted request is still
+  being answered), a request that belongs to that job goes straight through: an engine start / restart, a prompt
+  rewrite, a clip description, a cut-out, a model load (`ToolSpec.followup_prefixes`). Queued, it would wait behind a
+  request that is itself waiting for this studio's job - a deadlock when the job needs it. A *new* job from the same
+  studio queues in arrival order once another studio is waiting.
+* **RAM and VRAM aware.** On cards under 20 GB nothing starts next to a running job. On bigger cards ("share when it
+  fits") a request may start next to one only when the live free VRAM covers its `vram_need_gb` and the available
+  system RAM covers its `ram_need_gb` (Video Studio 32 GB, Voice Studio's Drama tab 14 GB); otherwise it waits.
+  Before a job starts, idle studios are stopped until its RAM need fits (least recently used first).
+* Claim routes added in 2026-10: Video Studio's engine utilities (`/api/enhance`, `/api/describe`, `/api/media/cutout`,
+  `/api/media/mask_preview`) start the ComfyUI engine on their own and used to run on top of another studio's job;
+  Voice Studio's Drama revise / edit / infill run Drama-3 like `/api/drama/generate`. All of them queue now.
 * **Load ahead** is off: a model loads when a job reaches the front of the queue, not when you open a studio.
 
 Measured (8 GB RTX 3070 laptop): Forge txt2img sent at 0 s, a Music Studio song at 3 s, another Forge image at 6 s -
@@ -173,6 +189,30 @@ Also built in:
 * **Idle unload / idle stop** — models are unloaded after 8 minutes idle on an 8 GB card (15 / 30 on bigger ones) and idle studios are stopped later to free RAM. Pin a studio to keep it running.
 * **Free GPU** — unload everything at once (for a game, another app, or peace of mind).
 * Everything the hub does is listed under **Activity**: what was unloaded, stopped and how much memory came free.
+
+### Notifications, watchdog, storage
+
+* **Job notifications** (Settings → Notifications). `hub/jobwatch.py` follows each studio's running job (the id its
+  status reports) and reads how it ended from the studio's own job API (`/api/jobs/<id>`: succeeded, failed,
+  cancelled). A job that ran longer than a minute shows a toast and - when turned on and allowed - a **browser
+  notification** (needs the hub opened as `http://127.0.0.1` / `localhost` and a hub tab open). Optional **push URL**
+  (an ntfy.sh-style topic of your own, off by default): the hub POSTs the studio, the status, the kind of job and the
+  duration - never a prompt, an error text or a file unless *Include the prompt* is ticked. *Send a test* checks it.
+* **Health watchdog** (Settings → Health watchdog, on by default). Every 30 s `hub/watchdog.py` restarts a studio
+  (the hub's ordinary restart) when a running job's progress, stage and step have not changed for 15 min - only for
+  studios whose progress ticks every sampling step (Video Studio, Image Studio, Forge) - or when its status endpoint
+  has not answered for 5 min while its container is up. It backs off while the GPU was busy in the last two minutes
+  or Video Studio's engine log still grows, acts at most once per studio per 30 min, logs to Activity and shows a
+  note on the studio's card. *Dry run* only logs.
+* **Storage** (sidebar). Space per studio and category: outputs, models, code / environment; for Video Studio its
+  History videos, kept storyboard shot clips (`data/inputs/<job>-segNN.mp4`), "before refine" copies
+  (`*-unrefined.mp4`), the Trash (older / newer than 7 days), orphans (files of jobs that exist nowhere), uploads,
+  engine scratch and temp. The job list comes from Video Studio's API when it runs plus its `jobs.sqlite`, opened
+  read-only. **Clean up** runs only on your click: tick categories (orphans and Trash older than 7 days are ticked by
+  default; anything belonging to a job in History only when you tick it), *Review* shows the exact files and the
+  total from a dry run, and only *Delete* removes them. Trash jobs are deleted through Video Studio's own
+  `DELETE /api/jobs/<id>` (so it needs to be running); the other files are removed by the hub, only inside
+  `outputs/` and `data/inputs/`, never a file newer than an hour or named in any job, project or character record.
 
 ## The shell
 
@@ -315,3 +355,16 @@ checkpoint family's format - you check or edit the plan, and Forge renders it. A
   least recently used first, until the RAM fits.
 * **Skills are the assistant's only.** The studios' own pages and their built-in helpers (Forge's ModelProfile and
   prompt enhancer, Video Studio's Enhance, Music Studio's lyric writer) do not read them.
+
+### Video prompt writer
+
+The **Video prompt writer** chip in the Assistant writes and revises MiniMax H3 storyboard prompts in the
+subject_definitions / summary / retention_analysis / detailed_description format (`hub/assistant/prompt_writer.py`;
+the rules of the minimax-video-prompt skill, summarised to fit the local model's 8k context). One call plans the cast,
+the reference slots and the parts; one call per part writes its beats; the code assembles the sections and enforces
+what H3 storyboards taught: "hard cut" and "locked off" in every Opening paragraph, fixed reference slots with unused
+ones declared "not used" (without naming who they show), the background where the camera actually is, a voice
+reference per speaker (a text description does not set gender or age), and a line spoken by someone off screen moved
+to a separate voice-over note - in a solo shot H3 lip-syncs the visible character. Each part has a **Copy** button;
+**Send to Video Studio as storyboard shots** creates a new editor project (`POST /api/projects`, one shot card per
+part, nothing renders). A change request ("make part 2 a close-up") rewrites only the parts that change.
