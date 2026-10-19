@@ -58,6 +58,7 @@
       image: "Describe the image, a poster or a logo… or \"edit it: …\" to change the last image (Enter to plan)",
       music: "Describe the song: what it is about, the genre, the language, the mood… (Enter to plan)",
       tts: "What should be said, and by whom? e.g. a calm narrator reading \"…\" (Enter to plan)",
+      vprompt: "Describe the short film - who, where, what happens, who says what - or ask for a change to the parts (Enter to write)",
     }[A.studio] || "Describe the image… (Enter to plan, Shift+Enter for a new line)";
     const dev = st.device === "auto" ? `Auto (now ${st.would_use === "gpu" ? "GPU" : "CPU"})` : st.device.toUpperCase();
     $("#asDevice").innerHTML = `<label title="Where the assistant's language model thinks. Auto: the GPU when it is free (an idle studio is unloaded first), the CPU while a studio is rendering. It is always unloaded before a render.">Planner: <select id="asDev">
@@ -95,12 +96,14 @@
     const wait = addMsg("assistant", `<span class="spinner"></span> Planning…`);
     A.busy = true; $("#asSend").disabled = true;
     try {
-      const d = await api("/api/assistant/plan", { studio: A.studio, message: text, session: A.session, ...(engine ? { engine } : {}) });
+      const edited = A.plan && A.plan.studio === "vprompt" && A.studio === "vprompt" ? { parts: promptTexts() } : null;
+      const d = await api("/api/assistant/plan", { studio: A.studio, message: text, session: A.session, ...(engine ? { engine } : {}), ...(edited ? { edited } : {}) });
       A.session = d.session; A.plan = d.plan; store.set("as.session", d.session);
       const t = d.timing;
       const P = d.plan;
       const routed = d.routed ? `<div class="as-route">→ ${esc(d.routed.name)}${d.routed.reason ? ` - ${esc(d.routed.reason)}` : ""}</div>` : "";
-      const what = P.studio === "production" ? `${P.steps.map((st) => esc(st.title)).join(" → ")} · ${P.steps[2].plan.seconds} s video`
+      const what = P.studio === "vprompt" ? `MiniMax H3 prompts · ${P.parts.length} part${P.parts.length > 1 ? "s" : ""}${P.regenerate && P.regenerate.length ? ` · regenerate ${P.regenerate.join(", ")}` : ""}`
+        : P.studio === "production" ? `${P.steps.map((st) => esc(st.title)).join(" → ")} · ${P.steps[2].plan.seconds} s video`
         : P.studio === "video" ? `${esc(P.engine_name)} · ${P.mode === "i2v" ? "image to video" : "text to video"} · ${P.seconds} s · ${esc(P.aspect)}`
         : P.studio === "image" ? `Qwen-Image · ${{ t2i: "text to image", edit: "edit", rgba: "transparent" }[P.mode]} · ${esc(P.aspect)} · ${P.count} image${P.count > 1 ? "s" : ""}`
         : P.studio === "music" ? `YuE2 · "${esc(P.title)}"${P.instrumental ? " · instrumental" : ""}`
@@ -118,6 +121,7 @@
   }
 
   function renderPlan() {
+    if (A.plan && A.plan.studio === "vprompt") return renderPromptPlan();
     if (A.plan && A.plan.studio === "production") return renderProduction();
     if (A.plan && A.plan.studio === "video") return renderVideoPlan();
     if (A.plan && A.plan.studio === "image") return renderImagePlan();
@@ -166,6 +170,45 @@
       const eng = e.target.value;
       addMsg("user", `Use ${esc(ENGINES[eng] || eng)} for this clip`);
       await planFor(A.lastText || "the same clip", eng);
+    };
+  }
+
+  // ---- Video prompt writer: one MiniMax H3 prompt per part, a copy button each, and "Send to Video Studio" puts the
+  // parts on a new project's Storyboard as shot cards (nothing renders there until you press Animate / Generate).
+  function promptTexts() { return [...document.querySelectorAll("#asPlan textarea[data-part]")].map((t) => t.value); }
+  async function copyText(text, btn) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    const was = btn.textContent; btn.textContent = "Copied"; setTimeout(() => { btn.textContent = was; }, 1400);
+  }
+  function renderPromptPlan() {
+    const p = A.plan; const box = $("#asPlan");
+    const total = p.parts.reduce((a, x) => a + x.seconds, 0);
+    box.innerHTML = `
+      <div class="as-plan-head"><span class="eyebrow">Video prompt writer · MiniMax H3</span><span class="pill">${p.parts.length} part${p.parts.length > 1 ? "s" : ""} · ${total} s</span></div>
+      <div class="as-prod-title serif">${esc(p.title)}</div>
+      <details class="as-more" ${p.parts.length > 1 ? "" : "open"}><summary>References - attach them in this order in every part</summary>
+        <table class="as-refs">${p.references.map((r) => `<tr><td>${esc(r.slot)}</td><td>${esc(r.content)}</td></tr>`).join("")}</table></details>
+      <div class="as-parts">${p.parts.map((x, i) => `
+        <section class="as-part ${x.rewritten === false ? "kept" : ""}">
+          <div class="as-part-head"><b>${esc(x.label)}</b><span class="as-dim">${x.seconds} s${x.shot ? ` · ${esc(x.shot)}` : ""}${x.rewritten === false ? " · unchanged" : ""}</span>
+            <button class="btn small" data-copy="${i}" title="Copy this part's prompt">Copy</button></div>
+          <textarea data-part="${i}" rows="12" spellcheck="false">${esc(x.prompt)}</textarea>
+          ${(x.notes || []).map((n) => `<div class="as-note">${esc(n)}</div>`).join("")}
+        </section>`).join("")}</div>
+      <div class="as-actions"><button class="btn primary" id="vpSend" title="A new project in Video Studio's editor with one storyboard shot per part - nothing renders">Send to Video Studio as storyboard shots</button>
+        <button class="btn" id="vpCopyAll">Copy all</button><span class="as-dim" id="pState"></span></div>
+      <div class="as-dim">Ask for changes on the left ("make part 2 a close-up", "she whispers instead") - only the parts that change are rewritten.</div>`;
+    box.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copyText(box.querySelector(`textarea[data-part="${b.dataset.copy}"]`).value, b));
+    $("#vpCopyAll").onclick = (e) => copyText(p.parts.map((x, i) => `${x.label} (${x.seconds} s)\n${promptTexts()[i]}`).join("\n\n"), e.currentTarget);
+    $("#vpSend").onclick = async () => {
+      const b = $("#vpSend"); b.disabled = true; $("#pState").innerHTML = `<span class="spinner"></span> Sending…`;
+      try {
+        const d = await api("/api/assistant/vprompt/send", { session: A.session, edited: promptTexts() });
+        $("#pState").textContent = `${d.shots} shots in the project "${d.name}" - Video Studio → Editor → Storyboard (it opens as the newest project).`;
+        addMsg("assistant", `Placed ${d.shots} storyboard shot${d.shots > 1 ? "s" : ""} in Video Studio: project <b>${esc(d.name)}</b>. Nothing renders until you press Animate / Generate there; attach the references in the order shown.`);
+      } catch (e) { $("#pState").innerHTML = `<span class="as-err">${esc(e.message)}</span>`; }
+      b.disabled = false;
     };
   }
 

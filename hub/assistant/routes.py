@@ -10,13 +10,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..config import load_settings, save_settings
-from . import director, forge, image, music, runtime, video, voice
+from . import director, forge, image, music, prompt_writer, runtime, video, voice
 
 SESSIONS: dict[str, dict] = {}
 TASKS: dict[str, asyncio.Task] = {}
 STUDIOS = {"auto": {"name": "Auto", "ready": True}, "forge": {"name": "Forge", "ready": True},
            "video": {"name": "Video Studio", "ready": True}, "image": {"name": "Image Studio", "ready": True},
-           "music": {"name": "Music Studio", "ready": True}, "tts": {"name": "Voice Studio", "ready": True}}
+           "music": {"name": "Music Studio", "ready": True}, "tts": {"name": "Voice Studio", "ready": True},
+           # writes and revises MiniMax H3 storyboard prompts (nothing renders); the parts can become storyboard shots
+           "vprompt": {"name": "Video prompt writer", "ready": True}}
 
 
 def _load(sid: str) -> dict | None:
@@ -142,7 +144,9 @@ def register(app: FastAPI, hub) -> None:
                     return JSONResponse({"session": s["id"], "plan": p, "timing": timing, "routed": routed})
             s["studio"] = studio
             prev = s["plan"] if (s["plan"] or {}).get("studio") == studio else None
-            if studio == "video":
+            if studio == "vprompt":
+                p, timing = await prompt_writer.plan(text, s["history"], prev, device, body.get("edited"))
+            elif studio == "video":
                 p, timing = await video.plan(port(studio), text, s["history"], prev, device, _last_image(s),
                                              force_engine=body.get("engine"))
             elif studio == "image":
@@ -194,6 +198,25 @@ def register(app: FastAPI, hub) -> None:
         s["renders"].append({**res, "plan": p, "at": time.time()})
         _save(s)
         return JSONResponse({"session": s["id"], **res})
+
+    @app.post("/api/assistant/vprompt/send")
+    async def vprompt_send(req: Request) -> JSONResponse:
+        """The prompt writer's parts as storyboard shots of a new Video Studio project (nothing renders)."""
+        body = await req.json()
+        s = SESSIONS.get(body.get("session") or "") or _load(body.get("session") or "")
+        if not s or (s.get("plan") or {}).get("studio") != "vprompt":
+            raise HTTPException(400, "write the prompts first")
+        edited = body.get("edited") if isinstance(body.get("edited"), list) else None
+        if edited:
+            for part, txt in zip(s["plan"]["parts"], edited):
+                if isinstance(txt, str) and txt.strip():
+                    part["prompt"] = txt
+            _save(s)
+        try:
+            res = await prompt_writer.send_to_video(port("video"), s["plan"], edited, str(body.get("aspect") or "16:9"))
+        except Exception as e:
+            raise HTTPException(502, str(e))
+        return JSONResponse(res)
 
     @app.get("/api/assistant/progress/{sid}")
     async def progress_of(sid: str) -> JSONResponse:
