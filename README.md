@@ -221,6 +221,7 @@ Also built in:
 * **Library** — every image, clip, video and song the studios have ever made, in one searchable grid with a viewer, downloads and "open folder".
 * **Send to…** — from the Library viewer, hand any output straight to another studio: an image becomes the start frame in Video Studio or a reference in Image Studio's Edit & Combine, a voice clip becomes the reference voice for Music Studio's "sing it in this voice", a song goes to Voice Studio's speech-to-speech, a video to its dubbing. No download, no upload: the hub opens the target studio, waits for it, and drops the file into the slot you chose ([docs/handoff.md](docs/handoff.md) lists every slot and the small receiver each studio implements). It reads the tools' output folders directly (Forge's prompts come from the PNG metadata), so it works even when a studio is off.
 * **Models** — one page for every studio's models: what is installed (with sizes and dates), the catalogue each studio was built around, and which model is in use. Download from HuggingFace, Civitai or a direct link straight into the right folder (resumable, checksum-verified, with a live Downloads panel), verify or redownload an installed model, delete it, or press **Use** to switch a studio to it - the hub frees the GPU first. Voice and Video Studio keep their own catalogues and the hub drives them ([docs/models.md](docs/models.md)).
+* **Sandbox** — upload a page, a tool or a script someone built with an AI, change it in the browser, publish it under a link of its own ([below](#sandbox-share-what-you-built-with-an-ai)).
 * **Settings** — GPU policy and timers, pinned memory, appearance, network, HuggingFace / Civitai tokens, per-studio folders / ports / autostart / pinning, and a check-up of what is installed.
 * Light and dark themes; the theme is applied inside the studios too.
 
@@ -242,6 +243,7 @@ hub writes inside the tool folders.
 | Video Studio entrance | 7903 | proxies the backend on 8765 (ComfyUI engine 8188 stays internal) |
 | Music Studio entrance | 7904 | proxies the backend on 7860 (Windows) / 7863 (Linux container) |
 | Forge Studio entrance | 7905 | proxies the backend on 7866 (Windows) / 7860 (Linux container) |
+| Sandbox | 7910 | published links and draft previews only - uploaded content, never the hub API (Settings → Sandbox) |
 
 If a port is busy the hub moves to the next free one and prints the addresses in its window. A studio you started by hand
 with its own launcher is adopted instead of started twice. Starting the hub twice opens the running copy.
@@ -253,9 +255,10 @@ Windows, from an **administrator** PowerShell:
 
 ```powershell
 New-NetFirewallRule -DisplayName "AI Studio Hub" -Direction Inbound -Protocol TCP -LocalPort 7900-7905 -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "AI Studio Hub Sandbox" -Direction Inbound -Protocol TCP -LocalPort 7910 -Action Allow -Profile Any
 ```
 
-Linux with ufw: `sudo ufw allow 7900:7905/tcp`. Anyone on the network can then use every studio without a password
+Linux with ufw: `sudo ufw allow 7900:7905/tcp` (and `sudo ufw allow 7910/tcp` for Sandbox links). Anyone on the network can then use every studio without a password
 (the tools see the hub as a local visitor), so keep it to networks you trust.
 
 ## How it is built
@@ -274,15 +277,101 @@ hub\
   docker.py         docker / docker compose helpers for the Linux packaging
   tools.py          everything the hub knows about each studio
   library.py        the unified library (reads the tools' output folders and indexes)
+  sandbox\          the Sandbox: intake.py (upload checks), store.py (records + files), routes.py (/api/sandbox),
+                    serve.py (the separate content server on 7910)
   gpu.py            GPU telemetry: nvidia-smi, rocm-smi / amd-smi, Windows GPU counters; psutil
   compose\          the hub's compose overrides (start-idle switches) merged with the studios' compose files on Linux
   web\              the shell (no build step) and the theme files injected into the studios
-data\               settings.json, logs\<tool>.log, thumbs\, hub.pid   (created on first start)
+data\               settings.json, logs\<tool>.log, thumbs\, sandbox\, hub.pid   (created on first start)
 ```
 
 Requires Python 3.10+ and an NVIDIA GPU (driver with `nvidia-smi`) or an AMD Radeon GPU (see GPU support above). Windows 10/11 needs the `py`
 launcher; Linux needs Docker plus the NVIDIA Container Toolkit (NVIDIA) or the `video`/`render` groups (AMD) - any studio's `linux/initialize.sh` sets this up - and
 `python3-venv`.
+
+## Sandbox: share what you built with an AI
+
+**Sandbox** (under Studios in the sidebar) is for the page, tool, script or document someone in the team built with
+ChatGPT, Gemini or another AI and has nowhere to put: upload it, change it in the browser, publish it under a link
+that works for everyone on the network - `http://<hub-pc>:7910/quote-calc`, or `https://aihub.com/quote-calc` with a
+domain in front. It is part of the hub itself (no container; nothing to start or stop).
+
+* **Upload** one file, several, a folder or a `.zip` (50 MB and 500 files by default, Settings → Sandbox). Checked
+  before anything is written: no `../` or absolute paths, no symlinks, no password-protected zips, no programs or
+  installers, the zip's unpacked size within the limit and no entry compressed more than 200:1 (zip bombs) - the real
+  bytes are counted again while unpacking. A single top folder is stripped; a lone `.html` becomes `index.html`. The
+  kind is detected (has `index.html` → **web app**; code files → **script**; otherwise **document**) and can be changed.
+* **Change it here:** file tree (add, upload more, rename, delete), a code editor (line numbers, Tab / Shift+Tab
+  indenting, Ctrl+S, unsaved-changes guard) and a live **Preview** of the draft. **✦ Assistant** asks the hub
+  Assistant's local model (the same `ai-assistant-llm` Ollama container) to change the open file; you see the change
+  line by line and apply it to the editor, nothing is saved until you press Save. It uses the GPU only when it is free
+  - it never pushes a studio out - and the CPU otherwise (slower). Files up to 12 k characters.
+* **Publish** freezes the draft as an immutable **version** (vN): every file copied, hashed (sha256, plus one hash of
+  the set) and made read-only; *History → Verify* recomputes the hashes against the record. Name a link when you
+  publish, or add more later. Each link shows **latest** (it follows new versions) or one **pinned** version, and every
+  version also has a permanent address: `/<link>@v3/`.
+* **Links** are `a-z 0-9 -`, 2-48 characters, unique, and never reused: a link that is taken down (or whose project is
+  deleted) keeps its name forever and answers "this link was taken down", so an old link can never show something
+  else. Words like `api`, `admin`, `hub`, `sandbox`, `raw`, `v` are reserved.
+* **Records:** every upload, edit, rename, delete, publish, link change, archive and delete is one row in an
+  append-only log - what, the name the person gave (the hub has no accounts; the browser remembers the last name), their
+  address and the time - shown on each project's **History** tab and in **Sandbox activity**. Views are counted per link
+  per day (a number, nothing about who). The database itself refuses to edit or delete log rows, versions or links.
+* **Archive** hides a project from the gallery and makes it read-only; its links keep working. **Delete** removes the
+  files and takes its links down; the log, the version records and the reserved names stay.
+
+URLs on the Sandbox port:
+
+| Address | What |
+|---|---|
+| `/<link>/` and anything below it | the link's version: a web app's own files; a script or document gets a read-only page (files, line numbers, copy, download, description, version note, author, dates) |
+| `/<link>@v<N>/` | version N of that project, permanently |
+| `/<link>/raw/<file>`, `/<link>/download.zip` | scripts and documents: one file as plain text / bytes, everything as a zip |
+| `/_draft/<project>/<token>/` | the draft, for the editor's preview; the token is random per project (⋯ → *New preview address* replaces it) |
+
+**Security - uploaded code is untrusted.** It never runs on the hub's origin (7900) or a studio's (7901-7905), which
+can start and stop studios and delete files:
+
+* Sandbox content is served only by a separate, minimal app on its own port (7910, bound like the others - `127.0.0.1`
+  or, with *Everyone on my network*, every interface). It has no hub or studio routes, answers GET/HEAD only, and never
+  lists folders.
+* Every response carries `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-modals
+  allow-downloads`, so each page runs in an **opaque origin**: no access to other apps' storage or cookies. The same
+  policy allows the page to load and call only its own files and `https:` - plain-http requests to other addresses
+  (the hub, the studios, other machines on the LAN) are blocked by the browser. Plus `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` and real content types (a script project's files are served as text, never rendered).
+* The hub and studio ports refuse (403) any request whose `Origin` is a Sandbox page (`null`, the Sandbox port, or its
+  public address), and the shell ignores messages from the preview frame - a second wall in case a page gets past the
+  policy. The preview frame itself is sandboxed too.
+* **Allow storage (same-origin)** per project adds `allow-same-origin` for apps that need localStorage / IndexedDB.
+  Such apps share the Sandbox's origin, so they can read each other's saved data - the switch says so. Switching it off
+  applies to every link at once; switching it on applies to the preview at once and to links from the next version.
+* Scripts are shared to read and download: no server-side code (Python or anything else) is ever executed.
+
+**A real domain** (so a link reads `https://aihub.com/quote-calc`): point the domain at a reverse proxy that forwards
+everything to the Sandbox port and nothing else, then enter `https://aihub.com` under Settings → Sandbox → Public address
+so the hub builds links with it. Keep the hub itself (7900-7905) off that domain. Caddy:
+
+```
+aihub.com {
+    reverse_proxy 127.0.0.1:7910
+}
+```
+
+nginx:
+
+```nginx
+server {
+    server_name aihub.com;
+    listen 443 ssl;            # plus your certificate lines
+    location / { proxy_pass http://127.0.0.1:7910; proxy_set_header Host $host; }
+}
+```
+
+With a domain, a separate hostname per app (wildcard DNS) would isolate storage-enabled apps from each other too; the
+single port keeps them on one origin.
+
+Data lives in `data/sandbox/` (`sandbox.db` + `projects/<id>/draft|v/<N>`), which git ignores.
 
 ## License
 
