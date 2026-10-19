@@ -6,3 +6,4 @@ __pycache__/
 
 # The studios are git submodules (Image gen, qwen tts, video-gen, Yue2, forge); their own .gitignore
 # files keep environments, models and outputs out of git.
+hub/bin/

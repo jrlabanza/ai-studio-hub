@@ -170,6 +170,11 @@ def _pct(v: Any) -> float | None:
 
 
 BASE_ENV = {"PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", "HUB_MANAGED": "1"}
+# Command-line tools the studios expect on PATH (ffmpeg for the Voice Studio's uploads and the Video Studio's
+# edits) can be dropped into hub/bin; it is put in front of PATH for every studio the hub starts.
+_HUB_BIN = Path(__file__).resolve().parent / "bin"
+if _HUB_BIN.is_dir():
+    BASE_ENV["PATH"] = str(_HUB_BIN) + os.pathsep + os.environ.get("PATH", "")
 
 
 class ToolSpec:
