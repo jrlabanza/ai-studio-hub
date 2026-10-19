@@ -149,8 +149,10 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
         url = f"http://127.0.0.1:{port}/{path}" + (f"?{request.url.query}" if request.url.query else "")
         headers = {k: v for k, v in request.headers.items() if k.lower() in ("content-type", "accept")}
         body = await request.body() if request.method == "POST" else None
+        # A GPU request may wait its turn in the hub's queue (minutes, behind another studio's job): no read timeout.
+        queued = dst is not None and dst.spec.is_claim(request.method, "/" + path)
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as c:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(None if queued else 120.0, connect=10.0)) as c:
                 resp = await c.request(request.method, url, headers=headers, content=body)
         except Exception as exc:  # noqa: BLE001
             return JSONResponse({"detail": f"{dst_tool} is not answering: {exc}"}, status_code=502)
@@ -232,9 +234,11 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
         method = request.method.upper()
         claimed = False
         if tool.spec.is_claim(method, "/" + path):
-            res = await hub.orchestrator.claim(tool.id, reason=f"{method} /{path}")
+            res = await hub.orchestrator.claim(tool.id, reason=f"{method} /{path}", path="/" + path)
             if not res.ok:
-                return JSONResponse({"detail": res.warning or "The GPU could not be reserved"}, status_code=503)
+                # skipped by the user or timed out in the queue: 409, so a client that retries 503s does not re-queue it
+                return JSONResponse({"detail": res.warning or "The GPU could not be reserved", "hub": "queue"},
+                                    status_code=409 if res.skipped else 503)
             await hub.orchestrator.before_forward(tool.id, method, "/" + path)
             hub.orchestrator.inflight_begin(tool.id)     # the lease holds while the request itself is still running
             claimed = True

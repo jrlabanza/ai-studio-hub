@@ -193,6 +193,15 @@ class ToolSpec:
     outputs_rel = "outputs"
     claim_routes: tuple[tuple[frozenset[str], str], ...] = ()
     claim_exclude_suffixes: tuple[str, ...] = ()
+    # Claim routes that are part of a job already running in this studio (an engine restart, a prompt rewrite, a
+    # model load): while the studio holds the GPU they go straight through instead of queueing behind requests that
+    # are themselves waiting for this studio's job. Every other claim route submits a new job and takes its turn.
+    followup_prefixes: tuple[str, ...] = ()
+    # The studio's per-job status API (hub/jobwatch.py reads how a job ended); "" = none.
+    job_status_path = ""
+    # The health watchdog may restart this studio when a running job's progress stops moving. Only for studios whose
+    # progress moves at least every few minutes (per sampling step); a fine-tune or a long song has no such ticks.
+    stall_watch = False
     python_rel = ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python"
     idle_context_mb = 400          # VRAM a running-but-unloaded process still holds (CUDA context)
     ram_need_gb = 0.0              # system RAM a job needs (0 = not checked); idle studios are stopped to make room
@@ -339,6 +348,22 @@ class ToolSpec:
     def vram_need_gb(self, total_gb: float) -> float:
         return 4.0
 
+    def is_followup(self, path: str) -> bool:
+        if not path.startswith("/"):
+            path = "/" + path
+        return any(path.startswith(p) for p in self.followup_prefixes)
+
+    def job_result(self, body: dict[str, Any]) -> dict[str, Any]:
+        """How a finished job ended, from the studio's job API: {"status": succeeded|failed|cancelled|"", "started",
+        "finished", "kind", "error"}. The default reads the common field names."""
+        raw = str(body.get("status") or body.get("state") or "").lower()
+        status = {"succeeded": "succeeded", "done": "succeeded", "success": "succeeded", "completed": "succeeded",
+                  "failed": "failed", "error": "failed", "cancelled": "cancelled", "canceled": "cancelled",
+                  "interrupted": "failed"}.get(raw, "")
+        return {"status": status, "started": body.get("started_at") or body.get("started"),
+                "finished": body.get("finished_at") or body.get("finished"), "kind": body.get("mode") or body.get("kind") or "",
+                "error": str(body.get("error") or "")[:300]}
+
     def is_claim(self, method: str, path: str) -> bool:
         if not path.startswith("/"):
             path = "/" + path
@@ -380,6 +405,9 @@ class ImageTool(ToolSpec):
     restart_exit_codes = frozenset({42})    # "GPU context lost" - the tool asks to be restarted
     port_regex = r"UI:\s+http://[\w.\-]+:(\d+)"
     claim_routes = ((POST, "/api/generate"), (POST, "/api/enhance"), (POST, "/api/model/load"))
+    followup_prefixes = ("/api/enhance", "/api/model/load")
+    job_status_path = "/api/jobs/{id}"
+    stall_watch = True                      # progress moves every sampling step
     checkout_markers = ("server/main.py",)
     docker_service = "qwen-image"
     docker_port = 7864
@@ -467,7 +495,8 @@ class ImageTool(ToolSpec):
             title = (params.get("prompt") or "").strip()[:90] or {"enhance": "Enhancing prompt",
                                                                     "load_model": "Loading model"}.get(kind, kind)
             job = {"kind": kind, "title": title, "percent": _pct(prog.get("percent")), "eta": prog.get("eta"),
-                   "message": prog.get("message") or "", "queued": max(0, len(active) - 1)}
+                   "message": prog.get("message") or "", "queued": max(0, len(active) - 1), "id": j.get("id"),
+                   "step": prog.get("step"), "started": j.get("started")}
         elif active:
             job = {"kind": active[0].get("kind"), "title": "Queued", "percent": None, "eta": None,
                    "message": f"{len(active)} job(s) queued", "queued": len(active)}
@@ -533,7 +562,11 @@ class TtsTool(ToolSpec):
         "/api/regenerate/", "/api/quality/", "/api/batch/csv", "/api/previews/generate", "/api/finetune/start",
         "/api/finetune/datasets", "/api/pronunciation/preview", "/v1/text-to-speech/", "/v1/speech-to-text",
         "/api/drama/generate", "/api/drama/ref",   # Drama tab: Fish Audio Drama-3 (~7 GB VRAM) / Whisper
+        "/api/drama/revise", "/api/drama/edit", "/api/drama/infill",   # the same Drama-3 job, from a take
     )) + ((GET_POST, "/api/subtitles/"),)
+    followup_prefixes = ("/api/models/load", "/api/tokenizer/", "/api/transcribe", "/api/quality/", "/api/drama/ref",
+                         "/api/pronunciation/preview")
+    job_status_path = "/api/jobs/{id}"
     # the Drama tab keeps ~11 GB of Drama-3's experts in RAM while a scene is performed
     ram_need_gb = 14.0
 
@@ -595,7 +628,7 @@ class TtsTool(ToolSpec):
             kind = j.get("kind") or "job"
             job = {"kind": kind, "title": kinds.get(kind, kind.replace("_", " ").title()), "percent": None,
                    "eta": None, "message": j.get("message") or ("Running" if j.get("status") == "running" else "Queued"),
-                   "queued": max(0, len(jobs) - 1)}
+                   "queued": max(0, len(jobs) - 1), "id": j.get("id"), "started": j.get("started")}
         if body.get("finetune_running") and not job:
             job = {"kind": "finetune", "title": "Fine-tuning", "percent": None, "eta": None, "message": "Training", "queued": 0}
         gpu = body.get("gpu") or {}
@@ -646,7 +679,14 @@ class VideoTool(ToolSpec):
     status_path = "/api/system"
     startup_timeout = 180.0
     port_regex = r"Lumen Video Studio -> http://[\w.\-]+:(\d+)"
-    claim_routes = ((POST, "/api/generate"), (POST, "/api/engine/start"), (POST, "/api/engine/restart"))
+    # The engine utility calls (prompt enhancer, clip description, cut-out, mask preview) start the ComfyUI engine on
+    # their own, so they claim the GPU too - unclaimed, they ran on top of another studio's job.
+    claim_routes = ((POST, "/api/generate"), (POST, "/api/engine/start"), (POST, "/api/engine/restart"),
+                    (POST, "/api/enhance"), (POST, "/api/describe"), (POST, "/api/media/cutout"),
+                    (POST, "/api/media/mask_preview"))
+    followup_prefixes = ("/api/engine/", "/api/enhance", "/api/describe", "/api/media/")
+    job_status_path = "/api/jobs/{id}"
+    stall_watch = True                      # progress / step move every sampling step (H3: ~20 s per step on 8 GB)
     idle_context_mb = 0             # the backend never touches CUDA; only its (separate) engine process does
     # MiniMax H3 on an 8 GB card offloads most of the model: its engine held 18.2 GB RSS plus 9.3 GB of pinned
     # shared memory in a storyboard render (2026-10-07); with idle Forge + Music Studio alive the kernel OOM-killed it.
@@ -754,7 +794,8 @@ class VideoTool(ToolSpec):
             prog = j.get("progress")
             job = {"kind": j.get("mode") or "generate", "title": (j.get("prompt") or "").strip()[:90] or "Rendering video",
                    "percent": _pct(float(prog) * 100) if isinstance(prog, (int, float)) else None, "eta": None,
-                   "message": j.get("stage") or j.get("status") or "", "queued": pending}
+                   "message": j.get("stage") or j.get("status") or "", "queued": pending, "id": j.get("id"),
+                   "step": j.get("step"), "model": j.get("model"), "started": j.get("started_at") or None}
         elif busy:
             job = {"kind": "generate", "title": "Queued", "percent": None, "eta": None, "message": f"{pending} queued",
                    "queued": pending}
@@ -822,6 +863,8 @@ class MusicTool(ToolSpec):
     claim_routes = ((POST, "/api/generate"), (POST, "/api/plan"), (POST, "/api/transcribe"), (POST, "/api/lyrics"),
                     (POST, "/api/describe"), (POST, "/api/songs/"))
     claim_exclude_suffixes = ("/export", "/share", "/meta")
+    followup_prefixes = ("/api/plan", "/api/lyrics", "/api/describe", "/api/transcribe")
+    job_status_path = "/api/jobs/{id}"
 
     def model_present(self, tool_dir: Path) -> tuple[bool, str]:
         ok = (tool_dir / "models" / "YuE2-3B").is_dir() and (tool_dir / "models" / "YuE2-Vae").is_dir()
@@ -860,7 +903,7 @@ class MusicTool(ToolSpec):
             elif isinstance(stage, str):
                 message = stage
             job = {"kind": cur.get("kind") or "song", "title": (cur.get("title") or "Song")[:90], "percent": percent,
-                   "eta": None, "message": message, "queued": len(queue)}
+                   "eta": None, "message": message, "queued": len(queue), "id": cur.get("id"), "started": cur.get("started")}
         elif queue:
             job = {"kind": "song", "title": "Queued", "percent": None, "eta": None, "message": f"{len(queue)} queued",
                    "queued": len(queue)}
@@ -899,6 +942,9 @@ class ForgeTool(ToolSpec):
         "/sdapi/v1/txt2img", "/sdapi/v1/img2img", "/sdapi/v1/extra-single-image", "/sdapi/v1/extra-batch-images",
         "/sdapi/v1/reload-checkpoint", "/queue/join", "/gradio_api/queue/join", "/run/predict", "/api/predict",
     ))
+    # Gradio's queue carries every UI action of the page, not only renders: those pass while Forge holds the GPU
+    followup_prefixes = ("/queue/join", "/gradio_api/queue/join", "/run/predict", "/api/predict", "/sdapi/v1/reload-checkpoint")
+    stall_watch = True
     checkout_markers = ("launch.py", "modules/api/api.py")
     docker_service = "forge"
     docker_port = 7860
@@ -959,7 +1005,8 @@ class ForgeTool(ToolSpec):
             steps, step = int(st.get("sampling_steps") or 0), int(st.get("sampling_step") or 0)
             job = {"kind": "generate", "title": (st.get("job") or "Generating").strip()[:90] or "Generating",
                    "percent": _pct(progress * 100), "eta": body.get("eta_relative") or None,
-                   "message": f"step {step}/{steps}" if steps else (body.get("textinfo") or ""), "queued": max(0, job_count - 1)}
+                   "message": f"step {step}/{steps}" if steps else (body.get("textinfo") or ""), "queued": max(0, job_count - 1),
+                   "step": step}
         label = "Checkpoint loaded" if loaded else "No checkpoint loaded"
         return Summary(state="busy" if busy else ("ready" if loaded else "unloaded"), loaded=loaded, busy=busy,
                        label=label, detail="", model="Forge Neo", job=job,

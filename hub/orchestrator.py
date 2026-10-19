@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -51,10 +52,11 @@ class ClaimResult:
     warning: str = ""
     waited_s: float = 0.0
     free_mb: int = 0
+    skipped: bool = False           # taken out of the queue by the user (or it timed out): the studio should not retry
 
     def to_dict(self) -> dict[str, Any]:
         return {"ok": self.ok, "tool": self.tool, "actions": self.actions, "warning": self.warning,
-                "waited_s": round(self.waited_s, 1), "free_mb": self.free_mb}
+                "waited_s": round(self.waited_s, 1), "free_mb": self.free_mb, "skipped": self.skipped}
 
 
 class Orchestrator:
@@ -150,11 +152,40 @@ class Orchestrator:
         if holder and holder in self.tools:
             job = self.summary(holder).job or {}
             out.append({"tool": holder, "name": self.tools[holder].spec.name, "status": "running",
-                        "title": job.get("title") or "", "percent": job.get("percent")})
+                        "title": job.get("title") or "", "percent": job.get("percent"), "message": job.get("message") or ""})
+        wait_max = load_settings().claim_wait_max_min
         for i, e in enumerate(self.pending):
-            out.append({"tool": e["tool"], "name": self.tools[e["tool"]].spec.name if e["tool"] in self.tools else e["tool"],
-                        "status": "waiting", "position": i + 1, "since": e["since"], "reason": e.get("reason", "")})
+            out.append({"id": e["id"], "tool": e["tool"],
+                        "name": self.tools[e["tool"]].spec.name if e["tool"] in self.tools else e["tool"],
+                        "status": "waiting", "position": i + 1, "since": e["since"], "reason": e.get("reason", ""),
+                        "waiting_for": e.get("waiting_for") or [], "blocked": e.get("blocked", ""),
+                        "need_vram_gb": e.get("need_vram_gb"), "need_ram_gb": e.get("need_ram_gb"),
+                        "gives_up_at": e["since"] + wait_max * 60 if wait_max > 0 else None})
         return out
+
+    def skip(self, entry_id: str) -> bool:
+        """The user took a waiting request out of the queue: its claim fails at once (the studio gets an error)."""
+        for e in self.pending:
+            if e["id"] == entry_id:
+                e["skip"] = True
+                e["event"].set()
+                self._record(e["tool"], f"{self.tools[e['tool']].spec.name}: a queued request was skipped from the hub", "warn")
+                return True
+        return False
+
+    def holds_gpu(self, tool_id: str) -> bool:
+        """The studio has the GPU for a job right now: one is running there, or the claim granted to it is still being
+        answered (or was granted a moment ago and has not shown up as a job yet)."""
+        t = self.tools.get(tool_id)
+        if not t or not t.running:
+            return False
+        if self.summary(tool_id).busy:
+            return True
+        lz = self.lease
+        if not lz or lz["tool"] != tool_id:
+            return False
+        return self.inflight.get(tool_id, 0) > 0 or (
+            not lz.get("seen_busy") and time.time() - max(lz["granted"], lz.get("answered", 0.0)) < LEASE_GRACE_S)
 
     def inflight_begin(self, tool_id: str) -> None:
         self.inflight[tool_id] = self.inflight.get(tool_id, 0) + 1
@@ -190,6 +221,9 @@ class Orchestrator:
         prev = self.summaries.get(tool.id)
         self.summaries[tool.id] = summ
         self.summary_ts[tool.id] = time.time()
+        jw = getattr(self.hub, "jobwatch", None)
+        if jw is not None:
+            jw.observe(tool, summ)          # which job runs, how it ended (notifications, the watchdog)
         if summ.busy:
             self.note_activity(tool.id)
             if self.lease and self.lease["tool"] == tool.id:
@@ -277,154 +311,260 @@ class Orchestrator:
         return res
 
     # ------------------------------------------------------------------ the claim
-    async def claim(self, tool_id: str, reason: str = "", wait: bool = True) -> ClaimResult:
+    async def claim(self, tool_id: str, reason: str = "", wait: bool = True, path: str = "") -> ClaimResult:
         tool = self.tools[tool_id]
         s = load_settings()
-        entry = {"tool": tool_id, "reason": reason, "since": time.time(), "waiting_for": None}
-        self.pending.append(entry)
-        self._queue_changed()
         t0 = time.time()
+        # 0. The studio that holds the GPU right now never queues behind itself: a request that belongs to its running
+        #    job (an engine restart after an OOM, a prompt rewrite, a model load) - or any request of it while nobody
+        #    else is waiting - goes straight through. Queued, it would wait behind a request that is itself waiting for
+        #    this studio's job to end, which never ends if the job needs the request (a deadlock).
+        others_waiting = any(e["tool"] != tool_id for e in self.pending)
+        if self.holds_gpu(tool_id) and (tool.spec.is_followup(path) or not others_waiting):
+            self.note_activity(tool_id)
+            if not (self.lease and self.lease["tool"] == tool_id):
+                self._grant(ClaimResult(True, tool_id), reason)
+            self.hub.bus.log(f"{tool.spec.name}: {reason or 'request'} went straight through - it holds the GPU",
+                             tool=tool_id, source="orchestrator", level="debug")
+            return ClaimResult(True, tool_id, ["follow-up of its own job"])
+        total_gb = (self.hub.gpu.latest.total_mb or 0) / 1024
+        entry: dict[str, Any] = {"id": uuid.uuid4().hex[:10], "tool": tool_id, "reason": reason, "since": t0,
+                                 "waiting_for": None, "blocked": "", "skip": False, "event": asyncio.Event(),
+                                 "need_vram_gb": round(tool.spec.vram_need_gb(total_gb or 8), 1),
+                                 "need_ram_gb": float(getattr(tool.spec, "ram_need_gb", 0) or 0) or None}
+        self.pending.append(entry)
+        if self._lock.locked():
+            entry["blocked"] = "behind the request ahead of it"
+        self._queue_changed()
         try:
-            async with self._lock:
-                self.note_activity(tool_id)
-                if not await tool.ensure_running():
-                    return ClaimResult(False, tool_id, warning=tool.error or f"{tool.spec.name} could not be started")
-
-                # 1. Never interrupt a job that is running in another studio - wait for it. Requests line up behind
-                #    the lock in arrival order (the hub's GPU queue); the studio granted last keeps the GPU until its
-                #    job has finished (the lease), so a model is only ever switched between jobs.
-                waited_msg = None
-                deadline = t0 + s.claim_wait_max_min * 60 if s.claim_wait_max_min > 0 else float("inf")
-                while True:
-                    busy_others = [t for t in self.tools.values() if t.id != tool_id and t.running and self.summary(t.id).busy]
-                    holder = self.lease_holder(tool_id)
-                    if holder and all(t.id != holder for t in busy_others):
-                        busy_others.append(self.tools[holder])
-                    if not busy_others:
-                        break
-                    if not wait:
-                        return ClaimResult(False, tool_id, warning=f"{busy_others[0].spec.name} is busy")
-                    names = ", ".join(t.spec.name for t in busy_others)
-                    entry["waiting_for"] = [t.id for t in busy_others]
-                    if waited_msg != names:
-                        waited_msg = names
-                        self._record(tool_id, f"{tool.spec.name} is waiting for {names} to finish")
-                        self.hub.bus.publish({"type": "waiting", "tool": tool_id, "for": [t.id for t in busy_others]})
-                    if time.time() > deadline:
-                        return ClaimResult(False, tool_id, warning=f"Gave up waiting for {names}", waited_s=time.time() - t0)
-                    await asyncio.sleep(1.0)
-                    for t in busy_others:
-                        await self.refresh(t)
-                entry["waiting_for"] = None
-
-                gpu = await self.hub.gpu.refresh()
-                actions: list[str] = []
-                if not gpu.available:
-                    self._set_owner(tool_id)
-                    return self._grant(ClaimResult(True, tool_id, actions, waited_s=time.time() - t0), reason)
-
-                total_gb = gpu.total_mb / 1024
-                need_mb = int((tool.spec.vram_need_gb(total_gb) + s.vram_headroom_gb) * 1024)
-                # The desktop, browsers and the driver always keep ~1 GB: never demand more than can exist.
-                need_mb = min(need_mb, gpu.total_mb - 1200)
-
-                # What each running studio holds right now (per process, from nvidia-smi). The memory the
-                # claiming studio already holds - its own loaded model - counts towards what it needs, so a
-                # second Generate does not read as "the card is full" and start stopping the other studios.
-                usage = await self._usage_by_tool()
-                own_mb = usage.get(tool_id, 0)
-
-                async def enough() -> bool:
-                    info = await self.hub.gpu.refresh()
-                    return info.free_mb + own_mb >= need_mb
-
-                others = [t for t in self.tools.values() if t.id != tool_id and t.running]
-                mine = self.summary(tool_id)
-                if self.owner == tool_id and mine.loaded and await enough():
-                    return self._grant(ClaimResult(True, tool_id, actions, waited_s=time.time() - t0, free_mb=self.hub.gpu.latest.free_mb), reason)
-
-                # 2. Unload the other studios' models.
-                policy = self.policy()
-                loaded_others = [t for t in others if self.summary(t.id).loaded]
-                if policy == "budget":
-                    loaded_others.sort(key=lambda t: t.spec.vram_need_gb(total_gb), reverse=True)
-                for t in loaded_others:
-                    if policy == "budget" and await enough():
-                        break
-                    await self.unload_models(t, f"{tool.spec.name} needs the GPU")
-                    actions.append(f"unloaded {t.spec.name}")
-                if actions:
-                    await self._settle()
-
-                # 3. Still too full? Idle processes pin CUDA contexts - stop them, least recently used first.
-                #    (Processes that never touch CUDA, like Lumen's backend with its engine off, are skipped.)
-                #    Only worth it when what they hold would actually close the gap: stopping two idle
-                #    containers to win 300 MB against a 3 GB shortfall just costs a minute and helps nobody.
-                if not await enough():
-                    usage = await self._usage_by_tool()
-                    own_mb = usage.get(tool_id, own_mb)
-                    def holds_context(t: "ManagedProcess") -> bool:
-                        return usage.get(t.id, 0) > 0 or t.spec.idle_context_mb > 0 or self.summary(t.id).loaded
-                    order = sorted((t for t in others if holds_context(t) and not t.external),
-                                   key=lambda t: (bool(t.cfg.get("pinned")), self.last_activity.get(t.id, 0.0)))
-                    reclaimable = sum(usage.get(t.id, t.spec.idle_context_mb) for t in order)
-                    shortfall = need_mb - (self.hub.gpu.latest.free_mb + own_mb)
-                    if reclaimable >= shortfall:
-                        for t in order:
-                            if await enough():
-                                break
-                            await t.stop(f"{tool.spec.name} needs the VRAM")
-                            t.held_until = time.time() + 10 * 60
-                            actions.append(f"stopped {t.spec.name}")
-                            await self._settle(6.0)
-                    else:
-                        self._record(tool_id, f"{tool.spec.name} would like {shortfall / 1024:.1f} GB more than is free; "
-                                     f"stopping the other studios would only give back {reclaimable / 1024:.1f} GB, so they stay up", "warn")
-
-                # 3b. System RAM: an idle studio that was only unloaded keeps its process - and often its model,
-                #     offloaded to RAM. A heavy job (MiniMax H3) then runs out of RAM and the kernel kills it, so
-                #     idle studios are stopped, least recently used first, until the job's RAM need fits.
-                need_ram = float(getattr(tool.spec, "ram_need_gb", 0) or 0)
-                if need_ram:
-                    avail, own = await self._ram_for(tool_id)
-                    if avail + own < need_ram:
-                        idle = sorted((t for t in others if t.running and not t.external and not self.summary(t.id).busy
-                                       and not t.cfg.get("pinned")), key=lambda t: self.last_activity.get(t.id, 0.0))
-                        for t in idle:
-                            await t.stop(f"{tool.spec.name} needs the RAM")
-                            t.held_until = time.time() + 10 * 60
-                            actions.append(f"stopped {t.spec.name} for RAM")
-                            await asyncio.sleep(3.0)
-                            avail, own = await self._ram_for(tool_id)
-                            if avail + own >= need_ram:
-                                break
-                        if avail + own < need_ram:
-                            self._record(tool_id, f"{tool.spec.name} would like about {need_ram:.0f} GB of RAM; "
-                                         f"{avail + own:.1f} GB is available - close other programs if the job fails", "warn")
-
-                # 4. A local Ollama (lyric writing in Music Studio) keeps models resident for minutes.
-                if not await enough() and s.release_ollama:
-                    if await self._release_ollama():
-                        actions.append("released Ollama models")
-                        await self._settle(6.0)
-
-                info = self.hub.gpu.latest
-                self._set_owner(tool_id)
-                warning = ""
-                if info.free_mb < need_mb:
-                    warning = (f"Only {info.free_mb / 1024:.1f} GB of {total_gb:.0f} GB VRAM is free; "
-                               f"{tool.spec.name} would like about {need_mb / 1024:.1f} GB. Other applications may be using the GPU.")
-                summary_text = f"GPU handed to {tool.spec.name}" + (f" - {', '.join(actions)}" if actions else "")
-                if reason:
-                    summary_text += f" [{reason}]"
-                self._record(tool_id, summary_text, "warn" if warning else "info")
-                res = self._grant(ClaimResult(True, tool_id, actions, warning, time.time() - t0, info.free_mb), reason)
-                self.hub.bus.publish({"type": "claim", **res.to_dict(), "name": tool.spec.name})
-                return res
+            # Wait for the lock (FIFO across studios) while the user can still skip the request or it times out.
+            if not await self._acquire(entry, wait):
+                late = time.time() > self._deadline(entry)
+                why = ("Skipped in the hub's GPU queue" if entry["skip"] else
+                       "Gave up waiting in the hub's GPU queue" if late else "The GPU is busy")
+                return ClaimResult(False, tool_id, warning=why, waited_s=time.time() - t0, skipped=entry["skip"] or late)
+            try:
+                return await self._claim_locked(tool, s, entry, reason, wait, t0)
+            finally:
+                self._lock.release()
         finally:
             if entry in self.pending:
                 self.pending.remove(entry)
             self._queue_changed()
+
+    @staticmethod
+    def _deadline(entry: dict[str, Any]) -> float:
+        """When a waiting request gives up - read live, so changing the setting applies to requests already waiting."""
+        m = load_settings().claim_wait_max_min
+        return entry["since"] + m * 60 if m > 0 else float("inf")
+
+    async def _acquire(self, entry: dict[str, Any], wait: bool) -> bool:
+        """Take the claim lock in arrival order; False when skipped, timed out, or (wait=False) when it is taken.
+        The single acquire() call keeps the request's place in line; if this coroutine is abandoned in any way, a lock
+        it was granted meanwhile is handed straight back, so a cancelled claim can never leave the queue locked."""
+        if not wait and self._lock.locked():
+            return False
+        acq = asyncio.ensure_future(self._lock.acquire())
+        stop = asyncio.ensure_future(entry["event"].wait())
+        got = False
+        try:
+            while True:
+                left = self._deadline(entry) - time.time()
+                done, _ = await asyncio.wait({acq, stop}, timeout=min(30.0, max(0.1, left)),
+                                             return_when=asyncio.FIRST_COMPLETED)
+                if acq in done and not entry["skip"]:
+                    got = True
+                    return True
+                if acq in done or entry["skip"] or time.time() > self._deadline(entry):
+                    return False
+        finally:
+            stop.cancel()
+            if not got:
+                def give_back(f: asyncio.Future) -> None:
+                    if not f.cancelled() and f.exception() is None:
+                        self._lock.release()
+                if acq.done():
+                    give_back(acq)
+                else:
+                    acq.add_done_callback(give_back)
+                    acq.cancel()
+
+    async def _claim_locked(self, tool: "ManagedProcess", s: Any, entry: dict[str, Any], reason: str, wait: bool,
+                            t0: float) -> ClaimResult:
+        tool_id = tool.id
+        entry["blocked"] = ""
+        self._queue_changed()
+        self.note_activity(tool_id)
+        if not await tool.ensure_running():
+            return ClaimResult(False, tool_id, warning=tool.error or f"{tool.spec.name} could not be started")
+
+        # 1. Never interrupt a job that is running in another studio - wait for it. Requests line up behind
+        #    the lock in arrival order (the hub's GPU queue); the studio granted last keeps the GPU until its
+        #    job has finished (the lease), so a model is only ever switched between jobs. Only on a card big
+        #    enough to share ("budget") may a job start next to a running one - and only when its VRAM and its
+        #    system RAM need both fit in what is free right now, measured, not assumed.
+        waited_msg = None
+        while True:
+            busy_others = [t for t in self.tools.values() if t.id != tool_id and t.running and self.summary(t.id).busy]
+            holder = self.lease_holder(tool_id)
+            if holder and all(t.id != holder for t in busy_others):
+                busy_others.append(self.tools[holder])
+            if not busy_others:
+                break
+            fits, why = await self._fits_alongside(tool, s)
+            if fits:
+                self._record(tool_id, f"{tool.spec.name} runs next to {', '.join(t.spec.name for t in busy_others)} - {why}")
+                break
+            if not wait:
+                return ClaimResult(False, tool_id, warning=f"{busy_others[0].spec.name} is busy")
+            names = ", ".join(t.spec.name for t in busy_others)
+            entry["waiting_for"] = [t.id for t in busy_others]
+            entry["blocked"] = f"waiting for {names} to finish" + (f" ({why})" if why else "")
+            if waited_msg != names:
+                waited_msg = names
+                self._record(tool_id, f"{tool.spec.name} is waiting for {names} to finish")
+                self.hub.bus.publish({"type": "waiting", "tool": tool_id, "for": [t.id for t in busy_others]})
+                self._queue_changed()
+            if entry["skip"]:
+                return ClaimResult(False, tool_id, warning="Skipped in the hub's GPU queue", waited_s=time.time() - t0, skipped=True)
+            if time.time() > self._deadline(entry):
+                return ClaimResult(False, tool_id, warning=f"Gave up waiting for {names}", waited_s=time.time() - t0, skipped=True)
+            try:
+                await asyncio.wait_for(entry["event"].wait(), 1.0)
+            except asyncio.TimeoutError:
+                pass
+            for t in busy_others:
+                await self.refresh(t)
+        entry["waiting_for"] = None
+        entry["blocked"] = "getting the GPU ready"
+        self._queue_changed()
+
+        gpu = await self.hub.gpu.refresh()
+        actions: list[str] = []
+        if not gpu.available:
+            self._set_owner(tool_id)
+            return self._grant(ClaimResult(True, tool_id, actions, waited_s=time.time() - t0), reason)
+
+        total_gb = gpu.total_mb / 1024
+        need_mb = int((tool.spec.vram_need_gb(total_gb) + s.vram_headroom_gb) * 1024)
+        # The desktop, browsers and the driver always keep ~1 GB: never demand more than can exist.
+        need_mb = min(need_mb, gpu.total_mb - 1200)
+
+        # What each running studio holds right now (per process, from nvidia-smi). The memory the
+        # claiming studio already holds - its own loaded model - counts towards what it needs, so a
+        # second Generate does not read as "the card is full" and start stopping the other studios.
+        usage = await self._usage_by_tool()
+        own_mb = usage.get(tool_id, 0)
+
+        async def enough() -> bool:
+            info = await self.hub.gpu.refresh()
+            return info.free_mb + own_mb >= need_mb
+
+        # A studio still running a job (only possible when sharing a big card) is never unloaded or stopped.
+        others = [t for t in self.tools.values() if t.id != tool_id and t.running and not self.summary(t.id).busy]
+        mine = self.summary(tool_id)
+        if self.owner == tool_id and mine.loaded and await enough():
+            return self._grant(ClaimResult(True, tool_id, actions, waited_s=time.time() - t0, free_mb=self.hub.gpu.latest.free_mb), reason)
+
+        # 2. Unload the other studios' models.
+        policy = self.policy()
+        loaded_others = [t for t in others if self.summary(t.id).loaded]
+        if policy == "budget":
+            loaded_others.sort(key=lambda t: t.spec.vram_need_gb(total_gb), reverse=True)
+        for t in loaded_others:
+            if policy == "budget" and await enough():
+                break
+            await self.unload_models(t, f"{tool.spec.name} needs the GPU")
+            actions.append(f"unloaded {t.spec.name}")
+        if actions:
+            await self._settle()
+
+        # 3. Still too full? Idle processes pin CUDA contexts - stop them, least recently used first.
+        #    (Processes that never touch CUDA, like Lumen's backend with its engine off, are skipped.)
+        #    Only worth it when what they hold would actually close the gap: stopping two idle
+        #    containers to win 300 MB against a 3 GB shortfall just costs a minute and helps nobody.
+        if not await enough():
+            usage = await self._usage_by_tool()
+            own_mb = usage.get(tool_id, own_mb)
+            def holds_context(t: "ManagedProcess") -> bool:
+                return usage.get(t.id, 0) > 0 or t.spec.idle_context_mb > 0 or self.summary(t.id).loaded
+            order = sorted((t for t in others if holds_context(t) and not t.external),
+                           key=lambda t: (bool(t.cfg.get("pinned")), self.last_activity.get(t.id, 0.0)))
+            reclaimable = sum(usage.get(t.id, t.spec.idle_context_mb) for t in order)
+            shortfall = need_mb - (self.hub.gpu.latest.free_mb + own_mb)
+            if reclaimable >= shortfall:
+                for t in order:
+                    if await enough():
+                        break
+                    await t.stop(f"{tool.spec.name} needs the VRAM")
+                    t.held_until = time.time() + 10 * 60
+                    actions.append(f"stopped {t.spec.name}")
+                    await self._settle(6.0)
+            else:
+                self._record(tool_id, f"{tool.spec.name} would like {shortfall / 1024:.1f} GB more than is free; "
+                             f"stopping the other studios would only give back {reclaimable / 1024:.1f} GB, so they stay up", "warn")
+
+        # 3b. System RAM: an idle studio that was only unloaded keeps its process - and often its model,
+        #     offloaded to RAM. A heavy job (MiniMax H3) then runs out of RAM and the kernel kills it, so
+        #     idle studios are stopped, least recently used first, until the job's RAM need fits.
+        need_ram = float(getattr(tool.spec, "ram_need_gb", 0) or 0)
+        if need_ram:
+            avail, own = await self._ram_for(tool_id)
+            if avail + own < need_ram:
+                idle = sorted((t for t in others if t.running and not t.external and not self.summary(t.id).busy
+                               and not t.cfg.get("pinned")), key=lambda t: self.last_activity.get(t.id, 0.0))
+                for t in idle:
+                    await t.stop(f"{tool.spec.name} needs the RAM")
+                    t.held_until = time.time() + 10 * 60
+                    actions.append(f"stopped {t.spec.name} for RAM")
+                    await asyncio.sleep(3.0)
+                    avail, own = await self._ram_for(tool_id)
+                    if avail + own >= need_ram:
+                        break
+                if avail + own < need_ram:
+                    self._record(tool_id, f"{tool.spec.name} would like about {need_ram:.0f} GB of RAM; "
+                                 f"{avail + own:.1f} GB is available - close other programs if the job fails", "warn")
+
+        # 4. A local Ollama (lyric writing in Music Studio) keeps models resident for minutes.
+        if not await enough() and s.release_ollama:
+            if await self._release_ollama():
+                actions.append("released Ollama models")
+                await self._settle(6.0)
+
+        info = self.hub.gpu.latest
+        self._set_owner(tool_id)
+        warning = ""
+        if info.free_mb < need_mb:
+            warning = (f"Only {info.free_mb / 1024:.1f} GB of {total_gb:.0f} GB VRAM is free; "
+                       f"{tool.spec.name} would like about {need_mb / 1024:.1f} GB. Other applications may be using the GPU.")
+        summary_text = f"GPU handed to {tool.spec.name}" + (f" - {', '.join(actions)}" if actions else "")
+        if reason:
+            summary_text += f" [{reason}]"
+        self._record(tool_id, summary_text, "warn" if warning else "info")
+        res = self._grant(ClaimResult(True, tool_id, actions, warning, time.time() - t0, info.free_mb), reason)
+        self.hub.bus.publish({"type": "claim", **res.to_dict(), "name": tool.spec.name})
+        return res
+
+    async def _fits_alongside(self, tool: "ManagedProcess", s: Any) -> tuple[bool, str]:
+        """(may this claim start while another studio's job runs, why). Never with the "exclusive" policy (cards under
+        20 GB): one job at a time. With "budget": only when the free VRAM and the available system RAM - live figures -
+        both cover this studio's need."""
+        if self.policy() != "budget":
+            return False, ""
+        gpu = await self.hub.gpu.refresh()
+        if not gpu.available:
+            return False, ""
+        usage = await self._usage_by_tool()
+        need_mb = min(int((tool.spec.vram_need_gb(gpu.total_mb / 1024) + s.vram_headroom_gb) * 1024), gpu.total_mb - 1200)
+        have_mb = gpu.free_mb + usage.get(tool.id, 0)
+        if have_mb < need_mb:
+            return False, f"needs {need_mb / 1024:.1f} GB VRAM, {have_mb / 1024:.1f} GB free"
+        need_ram = float(getattr(tool.spec, "ram_need_gb", 0) or 0)
+        if need_ram:
+            avail, own = await self._ram_for(tool.id)
+            if avail + own < need_ram:
+                return False, f"needs {need_ram:.0f} GB RAM, {avail + own:.1f} GB available"
+        return True, f"{have_mb / 1024:.1f} GB VRAM free covers its {need_mb / 1024:.1f} GB"
 
     def _grant(self, res: ClaimResult, reason: str) -> ClaimResult:
         """The GPU goes to res.tool: it holds the lease until its job has run (see lease_holder)."""
