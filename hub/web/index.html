@@ -26,6 +26,9 @@
       </a>
       <div class="nav-section">Studios</div>
       <div id="navTools"></div>
+      <a class="nav-item nav-tool" data-view="sandbox" href="#/sandbox" style="--tool:#63C5DA" title="Sandbox - share what you built with an AI">
+        <span class="nav-ico tool-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5 12 5l8 4.5v5L12 19l-8-4.5z"/><path d="m4 9.5 8 4.5 8-4.5"/><path d="M12 14v5"/><path d="m8.5 6.9 7.9 4.6"/></svg></span>
+        <span class="nav-label">Sandbox</span></a>
       <div class="nav-section">Everything</div>
       <a class="nav-item" data-view="assistant" href="#/assistant">
         <span class="nav-ico"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.9 2.1 2.1.9-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></span>
@@ -181,6 +184,9 @@
       <div class="lib-foot"><button class="btn" id="libMore" hidden>Show more</button></div>
     </section>
 
+    <!-- --------------------------------------------------------- sandbox -->
+    <section class="view view-sandbox" id="view-sandbox" hidden></section>
+
     <!-- ------------------------------------------------------- assistant -->
     <section class="view view-assistant" id="view-assistant" hidden></section>
 
@@ -254,5 +260,6 @@
 
 <script src="/static/app.js?v={{v}}"></script>
 <script src="/static/assistant.js?v={{v}}"></script>
+<script src="/static/sandbox.js?v={{v}}"></script>
 </body>
 </html>

@@ -103,6 +103,13 @@
   // ------------------------------------------------------------------ router
   function route() {
     const hash = location.hash || "#/home";
+    // The Sandbox editor may hold unsaved changes: it gets a say before the page is left.
+    if (S.view === "sandbox" && window.Sandbox && S.lastHash && hash !== S.lastHash && !window.Sandbox.confirmLeave(hash)) {
+      history.replaceState(null, "", S.lastHash);
+      return;
+    }
+    S.lastHash = hash;
+    if (hash.startsWith("#/sandbox")) { showView("sandbox"); if (window.Sandbox) window.Sandbox.show(hash); return; }
     const m = hash.match(/^#\/(home|tool|library|models|settings|assistant|storage)(?:\/(\w+))?/);
     const view = m ? m[1] : "home";
     const tool = m && m[2];
@@ -130,8 +137,8 @@
     } else {
       S.tool = null;
       num.hidden = true;
-      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings", assistant: "Assistant", storage: "Storage" }[view] || "Home";
-      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU", assistant: "Describe it - the assistant picks the model, LoRAs and prompt, then the studio renders", storage: "Space each studio uses - and a clean-up that only runs when you confirm it" }[view] || "";
+      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings", assistant: "Assistant", storage: "Storage", sandbox: "Sandbox" }[view] || "Home";
+      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU", assistant: "Describe it - the assistant picks the model, LoRAs and prompt, then the studio renders", storage: "Space each studio uses - and a clean-up that only runs when you confirm it", sandbox: "Share what you built with an AI: upload it, change it here, publish a link" }[view] || "";
       if (view === "assistant" && window.Assistant) window.Assistant.show();
       sendFocus(null);
       if (view === "library") loadLibrary(true);
@@ -716,10 +723,16 @@
       { key: "brand_fonts_in_tools", label: "Hub font inside the studios", type: "bool", help: "Use the hub's font (Inter) for headings and buttons inside older studio versions that do not ship it themselves." },
     ] },
     { title: "Network", lead: "Changes here need a restart of the hub.", fields: [
-      { key: "bind_host", label: "Listen on", type: "select", options: [["127.0.0.1", "This PC only"], ["0.0.0.0", "Everyone on my network"]], help: "Sharing on the network also needs a firewall rule for ports 7900-7905 (see README)." },
+      { key: "bind_host", label: "Listen on", type: "select", options: [["127.0.0.1", "This PC only"], ["0.0.0.0", "Everyone on my network"]], help: "Sharing on the network also needs a firewall rule for ports 7900-7905, and 7910 for Sandbox links (see README)." },
       { key: "hub_port", label: "Hub port", type: "number", step: 1, min: 1024, max: 65535 },
       { key: "open_browser", label: "Open the browser on start", type: "bool" },
       { key: "stop_tools_on_exit", label: "Stop all studios when the hub closes", type: "bool" },
+    ] },
+    { title: "Sandbox", lead: "Projects people upload and share. Their pages are served from a port of their own, never from the hub's.", fields: [
+      { key: "sandbox_port", label: "Sandbox port", type: "number", step: 1, min: 1024, max: 65535, help: "Where published links and previews are served (restart the hub to apply)." },
+      { key: "sandbox_public_url", label: "Public address", type: "text", placeholder: "https://aihub.com", help: "Optional: a domain your reverse proxy maps to the Sandbox port. Links are then built as https://aihub.com/<name>. Empty: this PC's address and port." },
+      { key: "sandbox_max_mb", label: "Largest upload / project", type: "number", step: 5, min: 1, max: 2048, unit: "MB" },
+      { key: "sandbox_max_files", label: "Most files in a project", type: "number", step: 50, min: 1, max: 20000 },
     ] },
     { title: "Models", lead: "Tokens the Models page uses for downloads. Stored on this PC only.", fields: [
       { key: "hf_token", label: "HuggingFace token", type: "password", help: "Needed for gated repositories (huggingface.co/settings/tokens)" },
@@ -774,7 +787,7 @@
       S.settingsDirty = true;
       await api("/api/settings", { method: "PUT", body: { [key]: val } });
       if (key === "theme") { S.themeTouched = true; applyTheme(val, false); }
-      toast("Saved", "ok", ["bind_host", "hub_port"].includes(key) ? "Restart the hub to apply." : "", 2500);
+      toast("Saved", "ok", ["bind_host", "hub_port", "sandbox_port"].includes(key) ? "Restart the hub to apply." : "", 2500);
     } catch (err) { toast(err.message, "error"); }
     S.settingsDirty = false;
   }
@@ -1168,6 +1181,12 @@
     };
   }
 
+  const fromSandbox = (origin) => {
+    if (!origin || origin === "null") return true;
+    try { const u = new URL(origin), sp = S.state && S.state.app.sandbox_port; return !!sp && String(u.port || (u.protocol === "https:" ? 443 : 80)) === String(sp); }
+    catch (e) { return true; }
+  };
+
   // ------------------------------------------------------------------ modal / drawer
   function openModal(html, narrow = false) {
     $("#modalBody").innerHTML = html;
@@ -1248,6 +1267,7 @@
       else if (k === "g") { $("#btnFreeGpu").click(); e.preventDefault(); }
     });
     window.addEventListener("message", (e) => {
+      if (fromSandbox(e.origin)) return;          // uploaded code in the preview frame never talks to the shell
       const d = e.data || {};
       if (d.type === "hub:ready" && d.tool) { S.frameReady[d.tool] = true; const f = S.frames[d.tool]; if (f) { try { f.contentWindow.postMessage({ type: "hub:theme", theme: S.theme, look: currentLook() }, "*"); } catch (err) { /* ignore */ } } }
       if (d.type === "hub:navigate" && d.hash) location.hash = d.hash;
@@ -1260,6 +1280,10 @@
     window.addEventListener("resize", () => { if (S.view === "home") drawSpark(); });
     setInterval(() => { if (S.view === "home") loadRecent(); }, 20000);
   }
+
+  // Shared with the page scripts that live in their own files (sandbox.js).
+  window.Hub = { toast, openModal: (html, narrow) => openModal(html, narrow), closeModal: () => closeModal(), fmtAgo, esc,
+    state: () => S.state };
 
   (function init() {
     try { if (localStorage.getItem("pxx-rail") === "1") document.body.classList.add("collapsed"); } catch (e) { /* ignore */ }
