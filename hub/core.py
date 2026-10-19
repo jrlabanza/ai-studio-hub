@@ -9,13 +9,16 @@ import httpx
 
 from . import __version__
 from .config import APP_NAME, DEFAULT_TOOLS, PLATFORM, ROOT, ensure_dirs, load_settings, tool_present
+from .disk import Disk
 from .events import EventBus
 from .gpu import GpuMonitor
+from .jobwatch import JobWatch
 from .library import Library
 from .models import Models
 from .orchestrator import Orchestrator
 from .process import ManagedProcess
 from .tools import TOOL_ORDER, TOOLS
+from .watchdog import Watchdog
 
 
 class Hub:
@@ -29,6 +32,9 @@ class Hub:
         self.absent: list[str] = [tid for tid in TOOL_ORDER if tid not in self.order]
         self.tools: dict[str, ManagedProcess] = {tid: ManagedProcess(TOOLS[tid], self) for tid in self.order}
         self.orchestrator = Orchestrator(self)
+        self.jobwatch = JobWatch(self)
+        self.watchdog = Watchdog(self)
+        self.disk = Disk(self)
         self.library = Library(self)
         self.models = Models(self)
         self.started_at = time.time()
@@ -46,6 +52,7 @@ class Hub:
         self.gpu.busy = lambda: any(self.orchestrator.summary(t).busy for t in self.tools)
         await self.gpu.start()
         await self.orchestrator.start()
+        await self.watchdog.start()
         g = self.gpu.latest
         if g.available:
             self.bus.log(f"{APP_NAME} {__version__} ready · {g.name} · {g.total_mb / 1024:.0f} GB VRAM · "
@@ -69,6 +76,7 @@ class Hub:
             pass
 
     async def stop(self) -> None:
+        await self.watchdog.stop()
         await self.orchestrator.stop()
         await self.gpu.stop()
         if self.settings.stop_tools_on_exit:
@@ -87,6 +95,7 @@ class Hub:
             d["last_activity"] = self.orchestrator.last_activity.get(tid)
             d["is_owner"] = self.orchestrator.owner == tid
             d["proxy_port"] = self.proxy_ports.get(tid, d.get("proxy_port"))
+            d["watchdog"] = self.watchdog.describe().get(tid)
             tools[tid] = d
         return {
             "app": {"name": APP_NAME, "version": __version__, "hub_port": self.hub_port, "root": str(ROOT),

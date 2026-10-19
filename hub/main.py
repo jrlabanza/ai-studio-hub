@@ -121,6 +121,16 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(400, "theme must be light or dark")
         if "look" in data and data["look"] not in ("cinema", "classic"):
             raise HTTPException(400, "look must be cinema or classic")
+        url = str(data.get("notify_push_url") or "").strip()
+        if url and not url.lower().startswith(("http://", "https://")):
+            raise HTTPException(400, "The push URL must start with https:// (or http://)")
+        for key, lo in (("watchdog_stall_min", 5), ("watchdog_health_min", 2)):
+            if key in data:
+                try:
+                    if float(data[key]) < lo:
+                        raise HTTPException(400, f"{key} must be at least {lo} minutes")
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f"{key} must be a number")
         s = save_settings(data)
         hub.bus.publish({"type": "settings", "settings": s.to_dict()})
         return s.to_dict()
@@ -219,6 +229,69 @@ def create_app(hub: Hub) -> FastAPI:
             owner = next((t.id for t in hub.tools.values() if t.owns_pid(p["pid"])), None)
             procs.append({**p, "tool": owner})
         return {"processes": procs, "used_mb": info.used_mb, "total_mb": info.total_mb}
+
+    # ------------------------------------------------------------------ GPU queue
+    @app.get("/api/queue")
+    async def api_queue() -> dict[str, Any]:
+        return {"queue": hub.orchestrator.queue(), "claim_wait_max_min": load_settings().claim_wait_max_min}
+
+    @app.post("/api/queue/{entry_id}/skip")
+    async def api_queue_skip(entry_id: str) -> dict[str, Any]:
+        """Take a waiting request out of the GPU queue: the studio that sent it gets an error (409) at once."""
+        if not hub.orchestrator.skip(entry_id):
+            raise HTTPException(404, "That request is no longer waiting")
+        return {"ok": True}
+
+    # ------------------------------------------------------------------ jobs: notifications, watchdog
+    @app.get("/api/jobs/recent")
+    async def api_jobs_recent() -> dict[str, Any]:
+        return {"recent": list(hub.jobwatch.recent)[::-1],
+                "active": {k: {kk: v for kk, v in a.items() if kk != "sig"} for k, a in hub.jobwatch.active.items()}}
+
+    @app.post("/api/notify/test")
+    async def api_notify_test() -> dict[str, Any]:
+        """Send a sample push to the configured URL (what a finished job would send, without details)."""
+        s = load_settings()
+        if not s.notify_push_url:
+            raise HTTPException(400, "Enter a push URL first")
+        rec = {"tool": "hub", "name": "AI Studio Hub", "status": "succeeded", "label": "test notification",
+               "title": "", "seconds": 61, "error": ""}
+        ok, info = await hub.jobwatch.push(rec, s.notify_push_url, False)
+        if not ok:
+            raise HTTPException(502, f"The push URL answered: {info}")
+        return {"ok": True, "info": info}
+
+    @app.get("/api/watchdog")
+    async def api_watchdog() -> dict[str, Any]:
+        s = load_settings()
+        return {"enabled": s.watchdog_enabled, "stall_min": s.watchdog_stall_min, "health_min": s.watchdog_health_min,
+                "dry_run": s.watchdog_dry_run, "actions": hub.watchdog.describe(),
+                "no_answer_since": dict(hub.watchdog.no_answer)}
+
+    # ------------------------------------------------------------------ storage
+    @app.get("/api/storage")
+    async def api_storage(force: int = 0) -> dict[str, Any]:
+        return await hub.disk.usage(force=bool(force))
+
+    @app.get("/api/storage/{tool_id}/plan")
+    async def api_storage_plan(tool_id: str) -> dict[str, Any]:
+        try:
+            return await hub.disk.plan(tool_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/storage/{tool_id}/cleanup")
+    async def api_storage_cleanup(tool_id: str, request: Request) -> dict[str, Any]:
+        """{"categories": [...ticked...], "items": [...confirmed ids...], "dry_run": true|false}. Only the listed items
+        that are still in a freshly computed plan, in a ticked category, are deleted."""
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("items"), list) or not isinstance(body.get("categories"), list):
+            raise HTTPException(400, "Expected categories and items")
+        try:
+            return await hub.disk.cleanup(tool_id, [str(c) for c in body["categories"]], [str(i) for i in body["items"]],
+                                          dry_run=body.get("dry_run", True) is not False)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     # ------------------------------------------------------------------ hand-off ("Send to")
     @app.get("/api/handoff/targets")
