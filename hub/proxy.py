@@ -164,7 +164,9 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
         p = _safe_child(BRAND_DIR, path)
         if not p:
             return JSONResponse({"detail": "not found"}, status_code=404)
-        return FileResponse(p, headers={"Cache-Control": "public, max-age=3600"})
+        # scripts (the tour engine and the studio tours) revalidate, so an updated tour reaches an open studio
+        cache = "no-cache" if p.suffix == ".js" else "public, max-age=3600"
+        return FileResponse(p, headers={"Cache-Control": cache})
 
     # ------------------------------------------------------------------ WebSocket pass-through
     @app.websocket("/{path:path}")
