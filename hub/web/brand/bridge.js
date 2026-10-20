@@ -190,6 +190,110 @@
     if (d.type === "hub:notice" && d.text) showBanner(d.text, d.tone, d.ttl || 6000);
     if (d.type === "hub:import" && d.url && d.slot) onImport(d);
   });
+  // ------------------------------------------------------------------ guided tours
+  // The engine (tour.js) and the studio tours (tours-studios.js) load a moment after the page. The first time a
+  // studio is opened through the hub, a small card offers its tour; a "Tour" button restarts it. Whether it was
+  // offered is remembered by the shell (so "Reset tours" there works for every studio); a page opened on its own
+  // port without the shell remembers it in its own storage. Forge runs its own tour (window.jrlTour).
+  var framed = false;
+  try { framed = window.parent && window.parent !== window; } catch (e) { framed = true; }
+  var tours = { loading: null, def: null, asked: null, btn: null };
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+  function toShell(msg) { try { if (framed) window.parent.postMessage(msg, "*"); } catch (e) { /* ignore */ } }
+  function loadScript(src) {
+    return new Promise(function (res) {
+      var s = document.createElement("script"); s.src = src; s.async = true;
+      s.onload = function () { res(true); }; s.onerror = function () { res(false); };
+      (document.head || document.documentElement).appendChild(s);
+    });
+  }
+  function loadTours() {
+    if (tours.loading) return tours.loading;
+    var v = encodeURIComponent(cfg.version || "1");
+    tours.loading = (window.HubTour ? Promise.resolve() : loadScript("/__hub/brand/tour.js?v=" + v))
+      .then(function () { return window.HubTourStudios ? null : loadScript("/__hub/brand/tours-studios.js?v=" + v); })
+      .then(function () { tours.def = (window.HubTourStudios || {})[cfg.tool] || null; return tours.def; });
+    return tours.loading;
+  }
+  function isReady(def) {
+    try { return typeof def.ready === "function" ? !!def.ready() : !!(window.HubTour && window.HubTour.find(def.ready)); } catch (e) { return false; }
+  }
+  function whenReady(def, ms) {
+    var t0 = Date.now();
+    return new Promise(function (res) { (function tick() { if (isReady(def)) return res(true); if (Date.now() - t0 > ms) return res(false); setTimeout(tick, 400); })(); });
+  }
+  function markSeen() { lsSet("hub.tour.seen", "1"); toShell({ type: "hub:tour-seen", tool: cfg.tool }); }
+  function startTour() {
+    if (window.HubTour && window.HubTour.active()) return Promise.resolve(true);   // already running (a second start request)
+    return loadTours().then(function (def) {
+      if (!def || !window.HubTour) { toShell({ type: "hub:tour-status", tool: cfg.tool, ok: false, message: "This studio has no tour" }); return false; }
+      return whenReady(def, 45000).then(function (ok) {
+        if (!ok) { toShell({ type: "hub:tour-status", tool: cfg.tool, ok: false, message: (cfg.name || "The studio") + " is not ready yet" }); return false; }
+        markSeen();
+        if (def.external) { try { def.run(); } catch (e) { return false; } toShell({ type: "hub:tour-status", tool: cfg.tool, ok: true }); return true; }
+        var restore = null;
+        try { restore = def.start ? def.start() : null; } catch (e) { restore = null; }
+        window.HubTour.start({ id: cfg.tool, title: (def.name || cfg.name || "Studio") + " tour", steps: def.steps }, {
+          onEnd: function (r) {
+            try { if (restore) Promise.resolve(restore()).catch(function () {}); } catch (e) { /* ignore */ }
+            toShell({ type: "hub:tour-ended", tool: cfg.tool, completed: r.completed, report: r.report });
+          },
+        });
+        toShell({ type: "hub:tour-status", tool: cfg.tool, ok: true });
+        return true;
+      });
+    });
+  }
+  function applyReset(resetAt) {
+    var applied = parseFloat(lsGet("hub.tour.reset") || "0");
+    if (!resetAt || resetAt <= applied) return;
+    lsSet("hub.tour.seen", null);
+    ((tours.def && tours.def.resetKeys) || []).forEach(function (k) { lsSet(k, null); });
+    lsSet("hub.tour.reset", String(resetAt));
+  }
+  function askShell() {
+    // {seen, resetAt, offer} from the shell; on our own port (or no answer) our own memory decides.
+    return new Promise(function (res) {
+      if (!framed) return res({ seen: lsGet("hub.tour.seen") === "1", offer: true });
+      var done = false;
+      tours.asked = function (d) { if (done) return; done = true; applyReset(d.resetAt); res({ seen: !!d.seen, offer: d.offer !== false }); };
+      toShell({ type: "hub:tour-ask", tool: cfg.tool });
+      setTimeout(function () { if (!done) { done = true; res({ seen: lsGet("hub.tour.seen") === "1", offer: true }); } }, 2500);
+    });
+  }
+  function setupTours() {
+    loadTours().then(function (def) {
+      if (!def || !window.HubTour) return;
+      whenReady(def, 60000).then(function (ok) {
+        if (!ok) return;
+        if (!def.external && !tours.btn) {
+          var b = def.button || {};
+          tours.btn = window.HubTour.launcher({ label: "Tour", title: "Guided tour of " + (def.name || cfg.name || "this studio"), onClick: startTour,
+            dock: b.dock ? window.HubTour.find(b.dock) : null, style: b.style });
+        }
+        askShell().then(function (st) {
+          if (def.external) return;                    // Forge offers its own tour on first use
+          if (st.seen || !st.offer || window.HubTour.active()) return;
+          window.HubTour.offer({ title: "New to " + (def.name || cfg.name) + "?", text: "Take a " + (def.minutes || 1) + "-minute tour of how it works. It only points and explains - nothing is generated.",
+            startLabel: "Take the tour", onStart: function () { startTour(); }, onLater: markSeen });
+        });
+      });
+    });
+  }
+  window.hubTour = { start: startTour };      // also for tests (the walker script)
+  if (document.readyState === "complete") setTimeout(setupTours, 1200); else window.addEventListener("load", function () { setTimeout(setupTours, 1200); });
+  window.addEventListener("message", function (e) {
+    if (e.source !== window.parent || window.parent === window) return;
+    var d = e.data || {};
+    if (d.type === "hub:tour-state" && tours.asked) tours.asked(d);
+    if (d.type === "hub:tour") {
+      if (d.action === "start") startTour();
+      else if (d.action === "stop" && window.HubTour) window.HubTour.stop();
+      else if (d.action === "reset") { loadTours().then(function () { applyReset(d.resetAt || Date.now() / 1000); }); }
+    }
+  });
+
   function announce() { try { if (window.parent && window.parent !== window) window.parent.postMessage({ type: "hub:ready", tool: cfg.tool }, "*"); } catch (e) { /* ignore */ } }
   if (document.readyState === "complete" || document.readyState === "interactive") announce(); else window.addEventListener("DOMContentLoaded", announce);
 })();
