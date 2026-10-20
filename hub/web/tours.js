@@ -171,7 +171,8 @@
     if (!window.HubTour || window.HubTour.active() || window.HubTour.offerOpen()) return;
     const st = load();
     if (st.offered) return;
-    if (hub().view() === "tool") return;              // not over a studio; it waits for the next hub page
+    // not over a studio (the hash is checked too: right after a studio opens, view() may not have caught up yet)
+    if (hub().view() === "tool" || location.hash.startsWith("#/tool/") || Object.keys(pending).length) return;
     window.HubTour.offer({
       title: "New here? Take a 2-minute tour",
       text: "A quick look at the studios, the shared GPU and every page of the hub. It only points and explains.",
