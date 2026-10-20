@@ -110,7 +110,7 @@
     }
     S.lastHash = hash;
     if (hash.startsWith("#/sandbox")) { showView("sandbox"); if (window.Sandbox) window.Sandbox.show(hash); return; }
-    const m = hash.match(/^#\/(home|tool|library|models|settings|assistant|storage)(?:\/(\w+))?/);
+    const m = hash.match(/^#\/(home|tool|library|models|settings|assistant|storage|tours)(?:\/(\w+))?/);
     const view = m ? m[1] : "home";
     const tool = m && m[2];
     showView(view, tool);
@@ -137,14 +137,15 @@
     } else {
       S.tool = null;
       num.hidden = true;
-      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings", assistant: "Assistant", storage: "Storage", sandbox: "Sandbox" }[view] || "Home";
-      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU", assistant: "Describe it - the assistant picks the model, LoRAs and prompt, then the studio renders", storage: "Space each studio uses - and a clean-up that only runs when you confirm it", sandbox: "Share what you built with an AI: upload it, change it here, publish a link" }[view] || "";
+      $("#topTitle").textContent = { home: "Home", library: "Library", models: "Models", settings: "Settings", assistant: "Assistant", storage: "Storage", sandbox: "Sandbox", tours: "Tours" }[view] || "Home";
+      $("#topSub").textContent = { home: "Orchestrating your GPU", library: "Everything your studios have made", models: "Every studio's models: installed, downloadable, selectable", settings: "How the hub shares the GPU", assistant: "Describe it - the assistant picks the model, LoRAs and prompt, then the studio renders", storage: "Space each studio uses - and a clean-up that only runs when you confirm it", sandbox: "Share what you built with an AI: upload it, change it here, publish a link", tours: "Guided tours of the hub and every studio" }[view] || "";
       if (view === "assistant" && window.Assistant) window.Assistant.show();
       sendFocus(null);
       if (view === "library") loadLibrary(true);
       if (view === "models") { if (tool) S.models.tool = tool; loadModels(); }
       if (view === "settings") renderSettings(true);
       if (view === "storage") loadStorage(false);
+      if (view === "tours" && window.HubTours) window.HubTours.show();
     }
     if (view === "home") { renderHome(); loadRecent(); }
   }
@@ -748,6 +749,7 @@
       grid.innerHTML = SETTINGS_SCHEMA.map((sec) => `<section class="card"><h3>${esc(sec.title)}</h3><p class="lead">${esc(sec.lead)}</p>
         ${sec.fields.map((f) => `<div class="field" data-key="${f.key}"><label>${esc(f.label)}</label>${f.help ? `<div class="help">${esc(f.help)}</div>` : ""}<div class="control">${control(f, s[f.key])}</div></div>`).join("")}</section>`).join("")
         + `<section class="card"><h3>Studios</h3><p class="lead">Ports are used on this PC only; the shell talks to the entrance port. Pinned studios are never stopped for being idle.</p><div class="tool-settings" id="toolSettings"></div></section>`
+        + `<section class="card"><h3>Help</h3><p class="lead">Guided tours point at each part of the hub and the studios and explain it in a sentence or two.</p><div class="gpu-actions"><button class="btn" data-tour="hub">Take the hub tour</button><a class="btn ghost" href="#/tours">All tours</a></div></section>`
         + `<section class="card"><h3>Check-up</h3><p class="lead">What the hub found on this PC.</p><ul class="doctor" id="doctorList"><li>Loading…</li></ul></section>`
         + `<section class="card"><h3>Keyboard</h3><p class="lead">Shortcuts work anywhere in the shell.</p><div class="shortcuts"><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>${S.state.order.length}</kbd><span>Open a studio</span><kbd>Alt</kbd>+<kbd>H</kbd><span>Home</span><kbd>Alt</kbd>+<kbd>L</kbd><span>Library</span><kbd>Alt</kbd>+<kbd>M</kbd><span>Models</span><kbd>Alt</kbd>+<kbd>A</kbd><span>Activity</span><kbd>Alt</kbd>+<kbd>T</kbd><span>Theme</span><kbd>Alt</kbd>+<kbd>G</kbd><span>Free the GPU</span></div>
           <p class="lead" style="margin-top:14px">${esc(st.app.name)} ${esc(st.app.version)} · ${esc(st.app.platform || "")} · hub on port ${st.app.hub_port} · <a href="/api/docs" target="_blank">API</a></p></section>`;
@@ -1283,7 +1285,8 @@
 
   // Shared with the page scripts that live in their own files (sandbox.js).
   window.Hub = { toast, openModal: (html, narrow) => openModal(html, narrow), closeModal: () => closeModal(), fmtAgo, esc,
-    state: () => S.state };
+    state: () => S.state, view: () => S.view, studioIcon,
+    frame: (id) => S.frames[id] || null, frameReady: (id) => !!S.frameReady[id] };   // tours.js: studio tours run in the frames
 
   (function init() {
     try { if (localStorage.getItem("pxx-rail") === "1") document.body.classList.add("collapsed"); } catch (e) { /* ignore */ }

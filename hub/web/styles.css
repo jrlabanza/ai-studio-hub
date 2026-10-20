@@ -796,3 +796,20 @@ button.chip.queue { cursor: pointer; font: inherit; font-size: 13px; color: var(
 .sb-ok { color: var(--ok); } .sb-bad { color: var(--danger); }
 :root[data-look="cinema"] .sb-tab.active { background: rgba(209, 254, 23, .14); color: #d1fe17; box-shadow: inset 0 0 0 1px rgba(209, 254, 23, .45); }
 :root[data-look="cinema"] .sb-file.on { background: rgba(209, 254, 23, .08); box-shadow: inset 3px 0 0 #d1fe17; }
+
+/* ---------------------------------------------------------------- Tours page (tours.js; the tour engine styles itself) */
+.tours-page { display: grid; gap: 18px; max-width: 1040px; }
+.tours-page .lead kbd { font: 600 12px/1 var(--font); padding: 2px 6px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--panel-2); }
+.tour-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.tour-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--panel-2); }
+.tour-row .tool-num { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: color-mix(in srgb, var(--tool) 14%, transparent); color: var(--tool); }
+.tour-row .tool-num svg { width: 20px; height: 20px; }
+.tour-main { display: flex; flex-direction: column; min-width: 0; }
+.tour-main small { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.tour-main .tour-note { color: var(--faint); font-size: 12.5px; }
+.tour-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+@media (max-width: 700px) {
+  .tour-row { grid-template-columns: 36px minmax(0, 1fr); }
+  .tour-meta { grid-column: 2; white-space: normal; flex-wrap: wrap; }
+  .tour-row .btn { grid-column: 2; justify-self: start; }
+}

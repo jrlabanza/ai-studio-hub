@@ -128,6 +128,7 @@
         <div class="lib-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="sbSearch" type="search" placeholder="Search names, authors, links…" value="${esc(f.q)}"></div>
         <span class="lib-count" id="sbCount"></span>
         ${authorChip()}
+        <button class="btn ghost small" data-tour="sandbox" title="Guided tour of the Sandbox">Tour</button>
         <a class="btn primary" href="#/sandbox/new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New project</a>
       </div>
       ${networkNote(SB.state.bases)}

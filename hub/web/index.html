@@ -50,6 +50,10 @@
         <span class="nav-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>
         <span class="nav-label">Settings</span>
       </a>
+      <a class="nav-item" data-view="tours" href="#/tours" title="Guided tours of the hub and every studio">
+        <span class="nav-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></svg></span>
+        <span class="nav-label">Tours</span>
+      </a>
     </nav>
 
     <div class="rail-foot">
@@ -208,10 +212,14 @@
     <section class="view view-storage" id="view-storage" hidden>
       <div class="lib-bar">
         <span class="lib-count" id="storageMeta"></span>
+        <button class="btn small ghost" data-tour="storage" title="Guided tour of this page">Tour</button>
         <button class="btn small" id="storageRefresh" title="Measure again">Rescan</button>
       </div>
       <div class="storage-grid" id="storageBody"><div class="empty">Measuring…</div></div>
     </section>
+
+    <!-- ---------------------------------------------------------- tours -->
+    <section class="view view-tours" id="view-tours" hidden></section>
 
     <!-- ---------------------------------------------------------- settings -->
     <section class="view view-settings" id="view-settings" hidden>
@@ -261,5 +269,8 @@
 <script src="/static/app.js?v={{v}}"></script>
 <script src="/static/assistant.js?v={{v}}"></script>
 <script src="/static/sandbox.js?v={{v}}"></script>
+<script src="/static/brand/tour.js?v={{v}}"></script>
+<script src="/static/brand/tours-studios.js?v={{v}}"></script>
+<script src="/static/tours.js?v={{v}}"></script>
 </body>
 </html>
