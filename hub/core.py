@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from . import __version__
-from .config import APP_NAME, DEFAULT_TOOLS, PLATFORM, ROOT, SANDBOX_DIR, ensure_dirs, load_settings, tool_present
+from .config import APP_NAME, DEFAULT_TOOLS, PLATFORM, ROOT, SANDBOX_DIR, ensure_dirs, load_settings, tool_present, public_studio_url
 from .disk import Disk
 from .events import EventBus
 from .gpu import GpuMonitor
@@ -100,6 +100,7 @@ class Hub:
             d["last_activity"] = self.orchestrator.last_activity.get(tid)
             d["is_owner"] = self.orchestrator.owner == tid
             d["proxy_port"] = self.proxy_ports.get(tid, d.get("proxy_port"))
+            d["public_url"] = public_studio_url(s, t.spec.short)
             d["watchdog"] = self.watchdog.describe().get(tid)
             tools[tid] = d
         return {

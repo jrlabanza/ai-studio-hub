@@ -27,7 +27,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from . import __version__
-from .config import BRAND_DIR, WEB_DIR, load_settings
+from .config import BRAND_DIR, WEB_DIR, load_settings, public_host, public_studio_url
 from .files import ranged_file
 
 if TYPE_CHECKING:
@@ -61,7 +61,13 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
     starting_template = (BRAND_DIR / "starting.html").read_text(encoding="utf-8")
 
     def hub_url(request: Request) -> str:
+        """The shell's address as seen by this visitor: the public one when the studio was reached through its public
+        hostname (Settings -> Network), otherwise the same host as the request with the hub port."""
         host = request.url.hostname or "127.0.0.1"
+        s = load_settings()
+        pub = public_studio_url(s, tool.spec.short)
+        if pub and host.lower() == public_host(pub):
+            return s.public_url.strip().rstrip("/")
         return f"{request.url.scheme}://{host}:{hub.hub_port}"
 
     def inject(html: str, request: Request) -> str:

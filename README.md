@@ -285,6 +285,23 @@ New-NetFirewallRule -DisplayName "AI Studio Hub Sandbox" -Direction Inbound -Pro
 Linux with ufw: `sudo ufw allow 7900:7905/tcp` (and `sudo ufw allow 7910/tcp` for Sandbox links). Anyone on the network can then use every studio without a password
 (the tools see the hub as a local visitor), so keep it to networks you trust.
 
+
+### Behind a domain (Cloudflare Tunnel, Caddy, nginx ...)
+
+The hub and every studio keep their own origin, so a domain needs one hostname each: the hub on its port and one
+per studio on that studio's entrance port (7901-7905), plus one for the Sandbox port if you use it. With a
+tunnel or reverse proxy mapping, enter the addresses under Settings → Network:
+
+* **Public address**: the hub, e.g. `https://ai.example.com` → port 7900
+* **Studios' public addresses**: a pattern with `{studio}` = `image`, `voice`, `video`, `music`, `forge`, e.g.
+  `https://ai-{studio}.example.com` → ports 7901-7905
+* Sandbox → *Public address* (Settings → Sandbox) → port 7910
+
+Opened through the public address, the shell links the studios with those hostnames and a studio's "hub" links
+point back to the public address; opened on the LAN, everything keeps using the ports. Keep a hostname one label
+deep (`ai-image.example.com`, not `image.ai.example.com`) if your certificate is a wildcard for the domain. The
+hub has no login of its own: put an access policy (for example Cloudflare Access) in front before exposing it.
+
 ## How it is built
 
 ```

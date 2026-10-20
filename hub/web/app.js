@@ -60,7 +60,15 @@
       chips.insertAdjacentHTML("beforeend", st.order.map((id) => `<button class="chip filter" data-tool="${id}" style="--tool:${st.tools[id].color}">${esc(st.tools[id].short)}</button>`).join(""));
     }
   }
-  const proxyUrl = (t) => `${location.protocol}//${location.hostname}:${t.proxy_port}/`;
+  // A studio's entrance: its public address when the shell itself is opened through the hub's public address
+  // (Settings -> Network, a tunnel or reverse proxy in front); otherwise this host with the entrance port.
+  const proxyUrl = (t) => {
+    const pub = S.state && S.state.settings && S.state.settings.public_url;
+    if (pub && t.public_url) {
+      try { if (new URL(pub).hostname.toLowerCase() === location.hostname.toLowerCase()) return t.public_url.replace(/\/?$/, "/"); } catch (e) { /* not a URL */ }
+    }
+    return `${location.protocol}//${location.hostname}:${t.proxy_port}/`;
+  };
   const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning." : h < 18 ? "Good afternoon." : "Good evening."; };
 
   function toast(text, tone = "", sub = "", ttl = 6000) {
@@ -728,6 +736,8 @@
       { key: "hub_port", label: "Hub port", type: "number", step: 1, min: 1024, max: 65535 },
       { key: "open_browser", label: "Open the browser on start", type: "bool" },
       { key: "stop_tools_on_exit", label: "Stop all studios when the hub closes", type: "bool" },
+      { key: "public_url", label: "Public address", type: "text", help: "A domain in front of the hub port, e.g. https://ai.example.com (Cloudflare Tunnel, Caddy, nginx). Empty on a plain LAN." },
+      { key: "public_studio_pattern", label: "Studios' public addresses", type: "text", help: "One hostname per studio, {studio} = image, voice, video, music, forge; e.g. https://ai-{studio}.example.com, each mapped to that studio's entrance port. The shell uses them when opened through the public address." },
     ] },
     { title: "Sandbox", lead: "Projects people upload and share. Their pages are served from a port of their own, never from the hub's.", fields: [
       { key: "sandbox_port", label: "Sandbox port", type: "number", step: 1, min: 1024, max: 65535, help: "Where published links and previews are served (restart the hub to apply)." },

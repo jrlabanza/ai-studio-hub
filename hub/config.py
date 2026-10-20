@@ -99,6 +99,12 @@ class Settings:
     # Sandbox (hub/sandbox): uploaded projects, served from their own port so their code never runs on the hub's origin.
     sandbox_port: int = 7910             # published links and draft previews (bound like the other ports: bind_host)
     sandbox_public_url: str = ""         # e.g. https://aihub.com when a reverse proxy maps a domain to the sandbox port
+    # A domain in front of the hub (Cloudflare Tunnel, Caddy, nginx ...): the hub's own public address, and one hostname
+    # per studio with {studio} = image | voice | video | music | forge, each mapped to that studio's entrance port.
+    # The shell links the studios with these when it is itself opened through the public address; on the LAN it
+    # keeps using the ports. Empty = no domain.
+    public_url: str = ""                 # e.g. https://ai.example.com  (-> the hub port)
+    public_studio_pattern: str = ""      # e.g. https://ai-{studio}.example.com  (-> the entrance ports)
     sandbox_max_mb: float = 50.0         # largest upload, and largest project (draft) in total
     sandbox_max_files: int = 500         # most files in one project
     tools: dict[str, dict[str, Any]] = field(default_factory=lambda: copy.deepcopy(DEFAULT_TOOLS))
@@ -119,6 +125,23 @@ def _merge_tools(base: dict[str, dict[str, Any]], patch: dict[str, Any]) -> None
         for k, v in values.items():
             if k in TOOL_KEYS:
                 cur[k] = v
+
+
+def public_studio_url(settings: "Settings", short: str) -> str:
+    """A studio's public address from the pattern ({studio} = its short name in lower case), "" when there is none."""
+    pattern = (settings.public_studio_pattern or "").strip()
+    if not pattern or not settings.public_url.strip():
+        return ""
+    return pattern.replace("{studio}", short.lower()).rstrip("/")
+
+
+def public_host(url: str) -> str:
+    """The host name of a public address ("" when the address is empty or not a URL)."""
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(url.strip()).hostname or "").lower() if url and url.strip() else ""
+    except ValueError:
+        return ""
 
 
 def load_settings() -> Settings:
