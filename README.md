@@ -223,7 +223,31 @@ Also built in:
 * **Models** — one page for every studio's models: what is installed (with sizes and dates), the catalogue each studio was built around, and which model is in use. Download from HuggingFace, Civitai or a direct link straight into the right folder (resumable, checksum-verified, with a live Downloads panel), verify or redownload an installed model, delete it, or press **Use** to switch a studio to it - the hub frees the GPU first. Voice and Video Studio keep their own catalogues and the hub drives them ([docs/models.md](docs/models.md)).
 * **Sandbox** — upload a page, a tool or a script someone built with an AI, change it in the browser, publish it under a link of its own ([below](#sandbox-share-what-you-built-with-an-ai)).
 * **Settings** — GPU policy and timers, pinned memory, appearance, network, HuggingFace / Civitai tokens, per-studio folders / ports / autostart / pinning, and a check-up of what is installed.
+* **Tours** — guided tours of the hub and of every studio ([below](#tours)).
 * Light and dark themes; the theme is applied inside the studios too.
+
+## Tours
+
+Guided tours point at one part of the page at a time (the rest is dimmed) and explain it in a sentence or two.
+Use **Next** / **Back** or <kbd>←</kbd> <kbd>→</kbd>, <kbd>Esc</kbd> to leave. Tours only point and explain: they may open a
+page or a tab, but they never start a job, generate, upload, delete or change a setting, and a studio tour puts back
+the tab, mode or model it switched to when it ends.
+
+* **Hub tour** (15 steps, about 2 minutes) — the studios, the shared GPU and its queue, the Home cards, Free GPU and
+  Activity, the Assistant and its Video prompt writer, Library, Sandbox, Storage, Models, Settings, and finally a choice
+  of studio tours. The first visit shows a small "New here? Take a 2-minute tour" card instead of starting it.
+* **Page tours** — Sandbox and Storage each have a **Tour** button on the page.
+* **Studio tours** — Image, Voice, Video and Music Studio each have a 10-12 step tour of their main workflow, run
+  inside the studio. It is offered the first time you open the studio through the hub, and the small **Tour** button
+  the hub adds to the studio's top bar starts it again. Forge runs its own tour (the hub just starts it).
+* **Tours** in the sidebar lists every tour with a Start button; **Reset tours** brings the first-visit offers back
+  (in the hub at once, in each studio the next time it opens). Settings → Help has the same.
+
+What has been offered is remembered in this browser (`localStorage`). The engine is `hub/web/brand/tour.js` (no
+dependencies, works offline), shared by the shell and the studios; the studio tours are in
+`hub/web/brand/tours-studios.js` and are loaded into each studio by the bridge, so no studio repository is touched.
+A step whose target is missing (a studio's UI changed, a panel is closed) is shown in the middle of the screen
+instead, so a tour never gets stuck.
 
 ## Moved a tool folder? The hub repairs it
 
@@ -281,7 +305,8 @@ hub\
                     serve.py (the separate content server on 7910)
   gpu.py            GPU telemetry: nvidia-smi, rocm-smi / amd-smi, Windows GPU counters; psutil
   compose\          the hub's compose overrides (start-idle switches) merged with the studios' compose files on Linux
-  web\              the shell (no build step) and the theme files injected into the studios
+  web\              the shell (no build step), the theme files and bridge injected into the studios, and the
+                    guided tours (tours.js; brand\tour.js engine, brand\tours-studios.js)
 data\               settings.json, logs\<tool>.log, thumbs\, sandbox\, hub.pid   (created on first start)
 ```
 
