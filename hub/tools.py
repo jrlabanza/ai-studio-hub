@@ -263,7 +263,13 @@ class ToolSpec:
         return (f,) if f.is_file() else ()
 
     def backend(self, tool_dir: Path) -> str:
-        """``native`` (the tool's own Python environment), ``docker`` (its Linux container image) or ``""``."""
+        """``native`` (the tool's own Python environment), ``docker`` (its Linux container image) or ``""``.
+        On Windows / macOS the container wins when Settings -> Studios -> "Run the studios in containers" is on
+        and the studio's image is built (Docker Desktop); otherwise the native environment is used."""
+        if not IS_LINUX and self.docker_service and self.compose_file(tool_dir).is_file():
+            from .config import load_settings
+            if load_settings().studio_containers and dk.available() and dk.image_exists(self.docker_image(tool_dir)):
+                return "docker"
         if self.python(tool_dir).is_file():
             return "native"
         if IS_LINUX and self.docker_service and self.compose_file(tool_dir).is_file():
@@ -734,7 +740,7 @@ class VideoTool(ToolSpec):
 
     def models_dir(self, tool_dir: Path) -> Path:
         """The repo's models/ - or, on Linux, the ComfyUI model store linux/.env points at."""
-        env = dk.read_env_file(tool_dir / "linux" / ".env") if IS_LINUX else {}
+        env = dk.read_env_file(tool_dir / "linux" / ".env") if (IS_LINUX or self.backend(tool_dir) == "docker") else {}
         custom = env.get("VIDEOGEN_MODELS_DIR")
         if custom:
             p = Path(custom)

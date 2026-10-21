@@ -82,7 +82,10 @@ def compose_env() -> dict[str, str]:
             Path(cache, sub).mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
-    env = {"AI_CACHE": cache}
+    env = {"AI_CACHE": cache,
+           # The host's Hugging Face cache when HF_HOME is set (models downloaded natively are reused by the
+           # containers); otherwise the containers' own cache. Mounted at /cache/hf by hub/compose/*.yml.
+           "AI_HF_DIR": os.environ.get("HF_HOME") or str(Path(cache, "hf"))}
     if hasattr(os, "getuid"):
         env["AI_UID"] = str(os.getuid())
         env["AI_GID"] = str(os.getgid())

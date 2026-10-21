@@ -103,6 +103,9 @@ class Settings:
     # per studio with {studio} = image | voice | video | music | forge, each mapped to that studio's entrance port.
     # The shell links the studios with these when it is itself opened through the public address; on the LAN it
     # keeps using the ports. Empty = no domain.
+    # Windows / macOS: run every studio whose Linux image is built (linux/initialize.sh, or docker compose build)
+    # in that container through Docker Desktop, the way Linux does; studios without an image stay native.
+    studio_containers: bool = False
     public_url: str = ""                 # e.g. https://ai.example.com  (-> the hub port)
     public_studio_pattern: str = ""      # e.g. https://ai-{studio}.example.com  (-> the entrance ports)
     sandbox_max_mb: float = 50.0         # largest upload, and largest project (draft) in total

@@ -66,6 +66,14 @@ and Music Studio:*
 
 Nothing starts until you need it: opening a studio starts it, pressing Generate loads its model.
 
+### The studios in containers on Windows
+
+With Docker Desktop (WSL 2 engine, NVIDIA runtime) the studios can run in their Linux images on Windows too:
+build them once (`docker compose -f <studio>\linux\compose.yml build`, plus `--profile chatterbox build chatterbox`
+for Voice Studio), then turn on **Settings → Network → Run the studios in their Linux containers** and restart the
+hub. Each studio with a built image runs as a container (its folder is mounted at `/app`, the host's Hugging Face cache
+when `HF_HOME` is set); the others stay native. Start Docker Desktop before the hub.
+
 ## Quick start (Linux)
 
 On Linux the studios are the Docker-packaged checkouts of the same repositories: every one has a `linux/` directory

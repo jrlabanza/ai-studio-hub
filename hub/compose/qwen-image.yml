@@ -3,6 +3,9 @@
 # Qwen-Image so the model only takes the GPU when the hub hands it over (Generate, Warm up).
 services:
   qwen-image:
+    volumes:
+      # the host's Hugging Face cache (HF_HOME) when the hub has one, else <AI_CACHE>/hf (the same as /cache/hf)
+      - ${AI_HF_DIR}:/cache/hf
     command: ["--no-autoload"]
     environment:
       # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.

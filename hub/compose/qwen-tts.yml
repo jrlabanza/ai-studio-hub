@@ -3,11 +3,17 @@
 # argparse and starts the server without a model, so the GPU is taken only when the hub says so.
 services:
   qwen-tts:
+    volumes:
+      # the host's Hugging Face cache (HF_HOME) when the hub has one, else <AI_CACHE>/hf (the same as /cache/hf)
+      - ${AI_HF_DIR}:/cache/hf
     environment:
       QWEN_EXTRA_ARGS: "--preload="
       # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.
       AI_PIN_MEMORY: ${AI_PIN_MEMORY:-1}
   chatterbox:
+    volumes:
+      # the host's Hugging Face cache (HF_HOME) when the hub has one, else <AI_CACHE>/hf (the same as /cache/hf)
+      - ${AI_HF_DIR}:/cache/hf
     environment:
       # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.
       AI_PIN_MEMORY: ${AI_PIN_MEMORY:-1}
