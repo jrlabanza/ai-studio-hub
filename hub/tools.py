@@ -384,6 +384,21 @@ GET_POST = frozenset({"GET", "POST"})
 
 
 # ======================================================================= 01 Image Studio
+def _tts_drama_env() -> dict[str, str]:
+    """Voice Studio's Drama tab runs Fish Audio Drama-3 through audio.cpp, a separate native program its Linux image
+    builds in. On a bare machine the hub can ship the program instead: drop a build into hub/bin/audiocpp/ and the
+    studio is told where it is (AUDIOCPP_CLI / AUDIOCPP_SERVER). Nothing happens when the folder is absent."""
+    d = Path(__file__).resolve().parent / "bin" / "audiocpp"
+    exe = ".exe" if sys.platform == "win32" else ""
+    cli, server = d / f"audiocpp_cli{exe}", d / f"audiocpp_server{exe}"
+    env = {}
+    if cli.is_file():
+        env["AUDIOCPP_CLI"] = str(cli)
+    if server.is_file():
+        env["AUDIOCPP_SERVER"] = str(server)
+    return env
+
+
 def _image_brand_env() -> dict[str, str]:
     """Image Studio's brand kit, if this hub ships one: web/brand/kit/kit.json (logos, colours, fonts). The kit stays
     with the hub, so the studio's own folder and repository hold nothing company-specific."""
@@ -569,6 +584,9 @@ class TtsTool(ToolSpec):
     job_status_path = "/api/jobs/{id}"
     # the Drama tab keeps ~11 GB of Drama-3's experts in RAM while a scene is performed
     ram_need_gb = 14.0
+
+    def env(self, tool_dir: Path, cfg: dict[str, Any]) -> dict[str, str]:
+        return {**BASE_ENV, **_tts_drama_env()}
 
     def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
         return [str(self.python(tool_dir)), "app/server.py", "--host", "127.0.0.1", "--port", str(port)]
