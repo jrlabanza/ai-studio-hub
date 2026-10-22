@@ -895,7 +895,14 @@ class MusicTool(ToolSpec):
         return ok, "" if ok else "YuE2 weights not downloaded (run initialize.bat / linux/initialize.sh in the tool folder)"
 
     def argv(self, tool_dir: Path, port: int, cfg: dict[str, Any]) -> list[str]:
-        return [str(self.python(tool_dir)), "webui.py", "--host", "127.0.0.1", "--port", str(port)]
+        argv = [str(self.python(tool_dir)), "webui.py", "--host", "127.0.0.1", "--port", str(port)]
+        if sys.platform == "win32":
+            # Music Studio caps PyTorch at "VRAM minus 2 GiB" (--gpu-reserve-gib 2), so on an 8 GB card a song with
+            # long lyrics fails with "CUDA out of memory" before it starts. On Windows the NVIDIA driver lends system
+            # RAM when VRAM runs out (CUDA sysmem fallback): without the cap such a song runs, a little slower,
+            # instead of failing. Linux has no such fallback, so the studio's own default stays there.
+            argv += ["--gpu-reserve-gib", "0"]
+        return argv
 
     def health_ok(self, status_code: int, body: Any) -> bool:
         return status_code == 200 and isinstance(body, dict) and "model" in body
