@@ -915,8 +915,8 @@
     let actions = "";
     if (dl) actions = `<span class="dl-inline"><span class="spinner"></span> ${dl.percent != null ? dl.percent + "%" : dl.status}</span>${btn("cancel-dl", "Cancel", "ghost", "")}`;
     else if (k.layout === "delegated") {
-      if (it.installed) actions = (k.selectable && it.group !== "tokenizer" ? btn("use", inUse ? "In use" : "Use", inUse ? "primary" : "", "Make this the studio's model") : "") + (s.tool === "video" ? btn("dl-delegated", "Redownload", "ghost") : "") + (it.group !== "tokenizer" ? btn("delete", "Delete", "ghost danger-text") : "");
-      else actions = btn("dl-delegated", it.partial ? "Resume" : "Download", "", s.tool === "tts" ? "Loads the model, downloading it first" : "");
+      if (it.installed) actions = (k.selectable && it.group !== "tokenizer" && it.group !== "chatterbox" ? btn("use", inUse ? "In use" : "Use", inUse ? "primary" : "", "Make this the studio's model") : "") + (s.tool === "video" ? btn("dl-delegated", "Redownload", "ghost") : "") + (it.group !== "tokenizer" ? btn("delete", "Delete", "ghost danger-text") : "");
+      else actions = btn("dl-delegated", it.partial ? "Resume" : "Download", "", s.tool === "tts" ? (it.group === "chatterbox" ? "Downloads it; Chatterbox loads it when a clone needs it" : "Loads the model, downloading it first") : "");
     } else if (available) actions = btn("download", "Download", "", `From ${it.source && it.source.repo ? it.source.repo : it.source && it.source.url ? it.source.url : "the source"}`);
     else {
       const cat = (k.catalog || []).find((c) => c.name === name);
@@ -953,7 +953,7 @@
         busy(true);
         const body = tool === "video" ? { tool, variant_id: name } : { tool, name };
         await api("/api/models/download", { method: "POST", body });
-        toast(`${s.name} is downloading ${name.split("/").pop()}`, "ok", tool === "video" ? "Progress shows on its Models tab and here." : "It loads when the download completes.");
+        toast(`${s.name} is downloading ${name.split("/").pop()}`, "ok", tool === "video" ? "Progress shows on its Models tab and here." : name === "ResembleAI/chatterbox" ? "It is ready for the next Chatterbox clone." : "It loads when the download completes.");
         setTimeout(() => loadModels(true), 3000);
       }
       else if (act === "cancel-dl") { const d = dlFor(tool, kind, name); if (d) await api(`/api/models/downloads/${d.id}/cancel`, { method: "POST", body: {} }); }

@@ -613,9 +613,10 @@ class Models:
         if tool.id == "video":
             r = await self.hub.http.post(f"{tool.base_url}/api/models/download", json=payload, timeout=20.0)
         elif tool.id == "tts":
-            res = await self.hub.orchestrator.claim(tool.id, "download model", wait=False)
-            if not res.ok:
-                raise RuntimeError(res.warning)
+            if payload.get("name") != "ResembleAI/chatterbox":     # Chatterbox only downloads; the rest load too
+                res = await self.hub.orchestrator.claim(tool.id, "download model", wait=False)
+                if not res.ok:
+                    raise RuntimeError(res.warning)
             r = await self.hub.http.post(f"{tool.base_url}/api/models/load", json={"model_id": payload.get("name")}, timeout=15.0)
         else:
             raise ValueError("not a delegating studio")
