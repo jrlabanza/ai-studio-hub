@@ -91,14 +91,16 @@
   };
 
   // ------------------------------------------------------------------ Video Studio (video-generator/frontend)
-  // The page has no top-level tabs: a Create panel (left), the editor / result (centre), History (right, >= 1280 px).
+  // Two tabs in the top bar: Create (the Create panel, the result, History) and Edit (the editor - preview or storyboard
+  // board, and the timeline - full width, with History to drag from).
   var vAside = function () { return document.querySelector("aside"); };
   var vModel = function (name) { return function () { var a = vAside(); if (!a) return null; return Array.prototype.find.call(a.querySelectorAll("button"), function (b) { return (b.textContent || "").indexOf(name) >= 0 && b.querySelector("span"); }) || null; }; };
   var vTab = function (label) { return function () { var a = vAside(); if (!a) return null; return Array.prototype.find.call(a.querySelectorAll('[role="tablist"] [role="tab"]'), function (b) { return (b.textContent || "").trim() === label; }) || null; }; };
   var vClickFn = function (fn) { var el = fn(); if (el) { try { el.click(); } catch (e) { /* ignore */ } } return sleep(el ? 350 : 0); };
+  var vView = function (label) { return function () { return Array.prototype.find.call(document.querySelectorAll('.studio-tabs [role="tab"]'), function (b) { return (b.textContent || "").trim() === label; }) || null; }; };
   var vEyebrow = function (txt, closest) { return function () { var e = Array.prototype.find.call(document.querySelectorAll(".eyebrow"), function (x) { return (x.textContent || "").trim() === txt && x.offsetParent !== null; }); return e ? (closest ? e.closest(closest) : e) : null; }; };
   T.video = {
-    name: "Video Studio", minutes: 3, blurb: "Models and modes, prompt, references and voices, storyboard shots, Generate, results, History and the editor.",
+    name: "Video Studio", minutes: 3, blurb: "Create and Edit tabs, models and modes, prompt, references and voices, storyboard shots, Generate, results, History and the editor.",
     ready: '[role="tablist"] [role="tab"]', button: { dock: "header button::contains(Models)" },
     start: function () {
       var a = vAside(), model = null, mode = null;
@@ -108,15 +110,19 @@
         var sel = a.querySelector('[role="tablist"] [role="tab"][aria-selected="true"]');
         mode = sel && (sel.textContent || "").trim();
       }
-      var result = !!F("button::text(Back to edit)");
+      var cur = document.querySelector('.studio-tabs [role="tab"][aria-selected="true"]');
+      var view = cur ? (cur.textContent || "").trim() : "Create";
       return async function () {
+        await vClickFn(vView("Create"));
         if (model) await vClickFn(vModel(model));
         if (mode) await vClickFn(vTab(mode));
-        if (!result && F("button::text(Back to edit)")) await click("button::text(Back to edit)");
+        if (view !== "Create") await vClickFn(vView(view));
       };
     },
     steps: [
-      { sel: up("aside button::contains(MiniMax H3)"), title: "Welcome to Video Studio - pick a model",
+      { before: function () { return vClickFn(vView("Create")); }, sel: ".studio-tabs", title: "Welcome to Video Studio - Create and Edit",
+        text: ["<b>Create</b> is where you make videos: settings on the left, the result in the middle, History on the right.", "<b>Edit</b> opens the editor on its own, full width: the preview or the storyboard board, and the timeline."] },
+      { sel: up("aside button::contains(MiniMax H3)"), title: "Pick a model",
         text: ["<b>LTX-2.5</b>: fast, cinematic footage with sound, and long clips.", "<b>MiniMax H3</b>: talking, singing and acting people, picture and voice references, character swap."] },
       { sel: 'aside [role="tablist"]', title: "Pick a mode",
         text: ["<b>Text</b>, <b>Image</b> (animate a picture), <b>Start + End</b>, <b>Extend</b> a clip, <b>Storyboard</b> for several shots, <b>Fix</b> a clip.", "MiniMax H3 adds References, Swap, Keyframe, Edit and Motion."] },
@@ -136,13 +142,13 @@
       { sel: ["aside .border-t > button.w-full", "aside button::text(Generate)"], title: "Generate",
         text: ["Generate renders it. Long jobs wait their turn in the hub's GPU queue and run on their own.", "You can leave the page; the hub tells you when it's done."] },
       { sel: [function () { var b = F("button::text(History)"); return b ? b.closest("aside, section") || b.parentElement : null; }, "button::text(History)"], title: "History",
-        text: "Every render lands here. Click one to see it; drag it onto the timeline to edit it." },
-      { before: async function () { if (!F("button::text(Back to edit)")) await click('[title="Click to view · drag onto the timeline to edit"]'); await sleep(500); },
+        text: "Every render lands here. Click one to see it in Create; in the Edit tab, drag it onto the timeline." },
+      { before: async function () { await vClickFn(vView("Create")); if (!F("button::text(Fix up)")) await click('[title="Click to view · drag onto the timeline to edit"]'); await sleep(500); },
         sel: [function () { var b = F("button::text(Fix up)"); return b ? b.parentElement : null; }, '[title="Trim it, grab frames, mark timestamps, extend or edit it"]'], wait: 2500, title: "The result",
-        text: ["Below a finished film: <b>Quality check</b> lists stray frames or misheard lines, and <b>Fix up</b> cuts them in a new copy.", "<b>Edit video</b> trims and extends; <b>Re-roll shots</b> renders only the shots you pick again."] },
-      { before: async function () { if (F("button::text(Back to edit)")) await click("button::text(Back to edit)"); await click("button.chip::text(Preview)"); },
+        text: ["Below a finished film: <b>Quality check</b> lists stray frames or misheard lines, and <b>Fix up</b> cuts them in a new copy.", "<b>Edit video</b> trims and extends; <b>Re-roll shots</b> renders only the shots you pick again; <b>Add to editor</b> puts it on the timeline."] },
+      { before: async function () { await vClickFn(vView("Edit")); await click("button.chip::text(Preview)"); },
         sel: [up('[title="Drag to make the timeline taller or shorter"]'), '[title="Split at the playhead (S)"]'], wait: 2000, title: "The editor timeline",
-        text: ["Put clips, voices and music on the timeline, split and trim them, and export the cut.", "Above it, <b>Wide</b> hides the side panels for a bigger preview and the expand button plays it full screen. Have fun making films!"] },
+        text: ["The Edit tab: put clips, voices and music on the timeline, split and trim them, and export the cut. <b>Storyboard</b> above the preview shows the shots as a board.", "Above it, <b>Wide</b> hides the side panels for a bigger preview and the expand button plays it full screen. Have fun making films!"] },
     ],
   };
 
