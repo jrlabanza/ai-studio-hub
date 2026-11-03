@@ -45,7 +45,81 @@ and Music Studio:*
 
 ![Settings](docs/screenshots/settings.png)
 
-## Quick start (Windows)
+## Install in one step
+
+**Linux** (Ubuntu / Debian, NVIDIA or AMD card):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jrlabanza/ai-studio-hub/main/install.sh | bash
+```
+
+**Windows** (10 / 11, in PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/jrlabanza/ai-studio-hub/main/install.ps1 | iex
+```
+
+…or double-click **`Install AI Studio Hub.bat`** (in a clone, or downloaded on its own - it then fetches the latest
+`install.ps1`). From a clone, `./install.sh` does the same on Linux. When it finishes the hub is running at
+`http://localhost:7900` with every studio set up. Run it again any time: each step checks first and skips what is done.
+
+What it does, in order:
+
+1. **Checks the machine** and prints the graphics card it found. Installs what is missing - Linux: git, curl,
+   python3-venv, the NVIDIA driver (`ubuntu-drivers install`, then it asks for a reboot and you run the same command
+   again), Docker with the compose plugin and, on NVIDIA, the NVIDIA Container Toolkit (the studios' own
+   `linux/install-docker.sh`; plain Docker on AMD). Windows: Git, Python 3.11 and the Visual C++ runtime with winget
+   (the studios run natively there, no Docker).
+2. **Gets the code**: clones the hub into `~/AI/ai-studio-hub` (Windows: `%USERPROFILE%\AI\ai-studio-hub`), or uses the
+   clone it runs from, and fetches each studio's submodule. A studio already checked out next to the hub folder (the
+   `~/AI` layout) is used as it is. A studio whose repository you cannot access is left out; the hub runs with the
+   others.
+3. **Sets up each studio with its own initializer**, without questions: `linux/initialize.sh` on Linux (the CUDA or
+   ROCm image, its default models, a boot test), `Initialize.bat` / `initialize.bat` on Windows (its own `.venv`,
+   PyTorch for the card, its default models). Studio containers that are already running are not restarted.
+4. **Sets up the hub** (`linux/initialize.sh` / `Initialize AI Studio Hub.bat`), **starts it** (Linux: in the
+   background, `linux/stop.sh` stops it; Windows: in its own window, close it to stop) and opens the browser.
+5. **Fetches Video Studio's model pack**: it starts Video Studio once through the hub and queues the *one* MiniMax H3
+   pack Video Studio's own `recommend_variant` picks for the card - no other variant:
+
+   | Card | H3 pack |
+   |---|---|
+   | RTX 50 (Blackwell) | `h3-nvfp4` |
+   | RTX 40 | `h3-fp8` |
+   | RTX 30 / 20 | `h3-bf16` with 60 GB+ of RAM, else `h3-fp8` (FP8 weights, BF16 math) |
+   | AMD (ROCm) | `h3-int8` |
+
+   With less than 28 GB of RAM (44 GB on AMD) it is the compact `h3-mixed-int4`. The download runs in the background;
+   Video Studio → Models (or the hub's Models page) shows it. The other studios download what their own initializers
+   download by default.
+
+| Linux | Windows | |
+|---|---|---|
+| `--dir DIR` | `-Dir DIR` | where the hub lives |
+| `--skip forge,music` | `-Skip forge,music` | leave studios out: `image`, `voice`, `video`, `music`, `forge` |
+| `--no-start` | `-NoStart` | set everything up, do not start the hub |
+| `--no-models` | `-NoModels` | environments only, where a studio's setup allows it (Video Studio's pack included) |
+| `--no-browser` | `-NoBrowser` | do not open the browser |
+| `--no-desktop` | | no app-menu entry |
+| `--dry-run` | `-DryRun` | print every step it would take, change nothing |
+| `--gpu-unlock` | | see below |
+
+With the one-liners, options go after `bash -s --` on Linux (`curl -fsSL …/install.sh | bash -s -- --skip forge`); in
+PowerShell use `& ([scriptblock]::Create((irm …/install.ps1))) -Skip forge`, or set `AI_HUB_SKIP=forge`,
+`AI_HUB_DIR`, `AI_HUB_NO_START=1`, `AI_HUB_NO_MODELS=1`, `AI_HUB_DRY_RUN=1` before `irm … | iex`.
+
+**gpu-unlock (Linux, opt-in).** GeForce cards run FP16 / BF16 tensor math at half the rate of the same chip sold as a
+professional card; [gpu-unlock](https://github.com/Zagitta/gpu-unlock) lifts that cap at boot. It is what makes Video
+Studio's BF16 path fast on an RTX 30 / 20. `--gpu-unlock` sets it up on a GeForce RTX 20 / 30 / 40 (never on RTX 50 or
+AMD, and never without the flag): it clones it to `~/gpu-unlock-src`, runs `make install` (DKMS packages), backs up
+`/etc/default/grub`, adds `gpu_unlock.targets=<the card's PCI address>` to `GRUB_CMDLINE_LINUX_DEFAULT` and runs
+`update-grub`, writes `/etc/modprobe.d/gpu-unlock-nvidia.conf` (keeps the card powered so the unlock is not reset),
+rebuilds the initramfs and asks for a reboot. It prints the undo steps. With Secure Boot on, the unsigned module needs
+an enrolled key.
+
+## Set up by hand (Windows)
+
+The installer above does these steps for you.
 
 1. Clone the hub **with the studios** (they are git submodules, pinned to tested versions):
 
@@ -74,9 +148,9 @@ for Voice Studio), then turn on **Settings → Network → Run the studios in th
 hub. Each studio with a built image runs as a container (its folder is mounted at `/app`, the host's Hugging Face cache
 when `HF_HOME` is set); the others stay native. Start Docker Desktop before the hub.
 
-## Quick start (Linux)
+## Set up by hand (Linux)
 
-On Linux the studios are the Docker-packaged checkouts of the same repositories: every one has a `linux/` directory
+The installer above does these steps for you. On Linux the studios are the Docker-packaged checkouts of the same repositories: every one has a `linux/` directory
 (Dockerfile, `compose.yml`, `run.sh`, `stop.sh`, `initialize.sh`) and its own image `ai/<tool>:latest`. The hub finds
 them **inside its folder** (the submodule layout) or **next to it** under any of their usual names — so the `~/AI`
 layout used with [jrlabanza/ai-launcher](https://github.com/jrlabanza/ai-launcher) works as it is:
