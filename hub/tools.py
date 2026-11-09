@@ -525,8 +525,8 @@ class ImageTool(ToolSpec):
         used = gpu.get("used_gb")
         return Summary(state="busy" if busy else st, loaded=st in ("loading", "ready"), busy=busy, label=label,
                        detail=(eng.get("message") or "") if st in ("loading", "error") else "",
-                       model="Qwen-Image-2.1", job=job,
-                       gpu_used_mb=int(float(used) * 1024) if used is not None else None)
+                       model={"iris": "Iris-3B Turbo", "enhancer": "Prompt enhancer"}.get(eng.get("active"), "Qwen-Image-2.1"),
+                       job=job, gpu_used_mb=int(float(used) * 1024) if used is not None else None)
 
     def unload_steps(self, base: str, cfg: dict[str, Any], tool_dir: Path) -> list[Step]:
         return [Step("POST", f"{base}/api/model/unload", timeout=90, label="unload Qwen-Image")]
@@ -928,7 +928,7 @@ class MusicTool(ToolSpec):
             message, percent = "", None
             if isinstance(stage, dict):
                 message = str(stage.get("label") or stage.get("name") or stage.get("status") or "")
-                done, total = stage.get("done"), stage.get("total")
+                done, total = stage.get("done", stage.get("completed")), stage.get("total")   # Music Studio: "completed"
                 if isinstance(done, (int, float)) and isinstance(total, (int, float)) and total:
                     percent = _pct(done / total * 100)
             elif isinstance(stage, str):

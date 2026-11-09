@@ -101,6 +101,7 @@ What it does, in order:
 | `--no-models` | `-NoModels` | environments only, where a studio's setup allows it (Video Studio's pack included) |
 | `--no-browser` | `-NoBrowser` | do not open the browser |
 | `--no-desktop` | | no app-menu entry |
+| `--autostart` | | start the hub when you log in (systemd user service; `linux/install-autostart.sh --remove` undoes it) |
 | `--dry-run` | `-DryRun` | print every step it would take, change nothing |
 | `--gpu-unlock` | | see below |
 
@@ -108,9 +109,11 @@ With the one-liners, options go after `bash -s --` on Linux (`curl -fsSL …/ins
 PowerShell use `& ([scriptblock]::Create((irm …/install.ps1))) -Skip forge`, or set `AI_HUB_SKIP=forge`,
 `AI_HUB_DIR`, `AI_HUB_NO_START=1`, `AI_HUB_NO_MODELS=1`, `AI_HUB_DRY_RUN=1` before `irm … | iex`.
 
-**gpu-unlock (Linux, opt-in).** GeForce cards run FP16 / BF16 tensor math at half the rate of the same chip sold as a
-professional card; [gpu-unlock](https://github.com/Zagitta/gpu-unlock) lifts that cap at boot. It is what makes Video
-Studio's BF16 path fast on an RTX 30 / 20. `--gpu-unlock` sets it up on a GeForce RTX 20 / 30 / 40 (never on RTX 50 or
+**gpu-unlock (Linux, opt-in, experimental).** GeForce cards run FP16 / BF16 tensor math at half the rate of the same
+chip sold as a professional card; [gpu-unlock](https://github.com/Zagitta/gpu-unlock) lifts that cap at boot. Measured on
+an RTX 3070 Laptop it is not worth it there: Video Studio's H3 runs on the INT8 path (197 s → 195 s), and its laptop
+setting (runtime power management off) made every power-off end in a kernel panic in the NVIDIA driver until
+`gpu-unlock-nvidia.conf` was removed. If you try it, test a full shutdown right after the reboot. `--gpu-unlock` sets it up on a GeForce RTX 20 / 30 / 40 (never on RTX 50 or
 AMD, and never without the flag): it clones it to `~/gpu-unlock-src`, runs `make install` (DKMS packages), backs up
 `/etc/default/grub`, adds `gpu_unlock.targets=<the card's PCI address>` to `GRUB_CMDLINE_LINUX_DEFAULT` and runs
 `update-grub`, writes `/etc/modprobe.d/gpu-unlock-nvidia.conf` (keeps the card powered so the unlock is not reset),

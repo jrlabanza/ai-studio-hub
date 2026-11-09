@@ -212,13 +212,11 @@ async def render(port: int, p: dict, session: str, progress=None) -> dict:
         if r.status_code != 200:
             raise RuntimeError(f"Video Studio: {r.text[:400]}")
         job = r.json()
-        while True:
-            await asyncio.sleep(3)
-            j = (await c.get(f"http://127.0.0.1:{port}/api/jobs/{job['id']}")).json()
+        def update(j: dict) -> None:
             if progress:
                 progress(j.get("stage") or j.get("status"), j.get("progress") or 0)
-            if j.get("status") in ("succeeded", "failed", "cancelled"):
-                break
+        j = await runtime.poll_job(c, f"http://127.0.0.1:{port}/api/jobs/{job['id']}",
+                                   lambda j: j.get("status") in ("succeeded", "failed", "cancelled"), 3, update)
     if j["status"] != "succeeded":
         raise RuntimeError(f"Video Studio: {j.get('error') or j['status']}")
     return {"videos": [f"/media/video/{j['output_file']}"], "job": j["id"], "seconds": round(time.time() - t0, 1),

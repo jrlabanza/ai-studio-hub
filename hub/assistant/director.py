@@ -269,13 +269,10 @@ async def plan_video(ports: dict, prod: dict, device: str) -> dict:
 
 # ------------------------------------------------------------------------------------------------------ studio calls
 async def _poll(c: httpx.AsyncClient, url: str, done, step: dict, every: float = 3.0, label=None) -> dict:
-    while True:
-        await asyncio.sleep(every)
-        j = (await c.get(url)).json()
+    def update(j: dict) -> None:
         if label:
             step["progress"] = label(j)
-        if done(j):
-            return j
+    return await runtime.poll_job(c, url, done, every, update)
 
 
 async def karaoke(port: int, song_id: str) -> tuple[list[dict], str]:

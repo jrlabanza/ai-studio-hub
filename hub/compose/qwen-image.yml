@@ -10,3 +10,5 @@ services:
     environment:
       # Pinned (page-locked) host memory for CPU<->GPU transfers; the hub sets it from Settings.
       AI_PIN_MEMORY: ${AI_PIN_MEMORY:-1}
+      # Hugging Face's Xet transfer has stalled at 0 B/s inside these containers while plain HTTP runs at full speed
+      HF_HUB_DISABLE_XET: "1"

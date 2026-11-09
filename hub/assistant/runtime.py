@@ -148,6 +148,34 @@ async def studio_get(port: int, path: str, what: str) -> dict:
     raise RuntimeError(f"{what} did not answer - is it enabled in the hub?")
 
 
+async def poll_job(c: httpx.AsyncClient, url: str, done, every: float = 3.0, on_update=None, max_hours: float = 8.0) -> dict:
+    """Poll a studio job until `done(job)`. A 404 means the studio no longer knows the job (it restarted and lost
+    it), so it fails instead of waiting forever; a studio that is restarting (503 / no answer) is waited for, up to
+    10 minutes in a row."""
+    deadline, unreachable_since = time.time() + max_hours * 3600, None
+    while True:
+        await asyncio.sleep(every)
+        if time.time() > deadline:
+            raise RuntimeError(f"gave up after {max_hours:g} h waiting for {url.rsplit('/', 1)[-1]}")
+        try:
+            r = await c.get(url)
+        except httpx.TransportError:
+            r = None
+        if r is None or r.status_code in (502, 503, 504):
+            unreachable_since = unreachable_since or time.time()
+            if time.time() - unreachable_since > 600:
+                raise RuntimeError("the studio stopped answering for 10 minutes")
+            continue
+        unreachable_since = None
+        if r.status_code == 404:
+            raise RuntimeError("the studio lost this job (it restarted) - run it again")
+        j = r.json()
+        if on_update:
+            on_update(j)
+        if done(j):
+            return j
+
+
 async def studio_post(c: httpx.AsyncClient, url: str, **kw) -> httpx.Response:
     """POST through an entrance, retrying while the studio is starting or the GPU is being handed over (503)."""
     for _ in range(120):

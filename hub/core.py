@@ -81,6 +81,7 @@ class Hub:
             pass
 
     async def stop(self) -> None:
+        self.models.shutdown()
         await self.watchdog.stop()
         await self.orchestrator.stop()
         await self.gpu.stop()
@@ -115,6 +116,6 @@ class Hub:
             "orchestrator": self.orchestrator.describe(),
             "theme": s.theme,
             "look": s.look,
-            "settings": s.to_dict(),
+            "settings": s.to_public(),
             "clients": self.bus.connected,
         }

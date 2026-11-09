@@ -11,7 +11,9 @@
 #   --no-models      environments only: no studio downloads its models (Video Studio's pack included)
 #   --no-browser     do not open the browser at the end
 #   --no-desktop     no app-menu entry
-#   --gpu-unlock     NVIDIA RTX 20/30/40 only: also install gpu-unlock (faster BF16), needs a reboot
+#   --autostart      start the hub when you log in (a systemd user service; undo: linux/install-autostart.sh --remove)
+#   --gpu-unlock     NVIDIA RTX 20/30/40 only, EXPERIMENTAL: also install gpu-unlock (faster BF16), needs a reboot.
+#                    On an RTX 3070 Laptop it made every shutdown kernel-panic; Video Studio's H3 path is INT8 anyway.
 #   --dry-run        print every step it would take and change nothing
 #
 # Steps: 1 checks and graphics card  2 system packages (+ NVIDIA driver)  3 the code
@@ -27,11 +29,11 @@ set -uo pipefail
 REPO_URL="https://github.com/jrlabanza/ai-studio-hub.git"
 RAW_URL="https://raw.githubusercontent.com/jrlabanza/ai-studio-hub/main"
 TOOL_IDS=(image tts video music forge)
-DIR=""; DRY=0; START=1; MODELS=1; BROWSER=1; DESKTOP=1; UNLOCK=0
+DIR=""; DRY=0; START=1; MODELS=1; BROWSER=1; DESKTOP=1; UNLOCK=0; AUTOSTART=0
 declare -A SKIP=()
 
 usage(){ sed -n '2,21p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \?//' | grep . \
-  || echo "usage: install.sh [--dir DIR] [--skip TOOL] [--no-start] [--no-models] [--no-browser] [--no-desktop] [--gpu-unlock] [--dry-run]"; }
+  || echo "usage: install.sh [--dir DIR] [--skip TOOL] [--no-start] [--no-models] [--no-browser] [--no-desktop] [--autostart] [--gpu-unlock] [--dry-run]"; }
 add_skip(){ # accepts the ids and the studio names people use
   local t
   for t in ${1//,/ }; do
@@ -47,7 +49,7 @@ while (( $# )); do
     --dir) DIR="${2:-}"; shift ;; --dir=*) DIR="${1#*=}" ;;
     --skip) add_skip "${2:-}"; shift ;; --skip=*) add_skip "${1#*=}" ;;
     --no-start) START=0 ;; --no-models) MODELS=0 ;; --no-browser) BROWSER=0 ;; --no-desktop) DESKTOP=0 ;;
-    --gpu-unlock) UNLOCK=1 ;; --dry-run|-n) DRY=1 ;;
+    --gpu-unlock) UNLOCK=1 ;; --autostart) AUTOSTART=1 ;; --dry-run|-n) DRY=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1 (--help lists them)" >&2; exit 1 ;;
   esac; shift
@@ -291,6 +293,7 @@ done
 say 6/7 "The hub (its .venv, a check of every studio, the app-menu entry)"
 HUB_ARGS=(); (( DESKTOP )) || HUB_ARGS+=(--no-desktop)
 run bash "$ROOT/linux/initialize.sh" "${HUB_ARGS[@]}" </dev/null || die "the hub's setup failed (linux/initialize.sh)"
+(( AUTOSTART )) && { run bash "$ROOT/linux/install-autostart.sh" || note "autostart was not set up (linux/install-autostart.sh)"; }
 (( DRY )) || scan
 
 # --- 7. Start + Video Studio's model pack ------------------------------------
@@ -408,6 +411,12 @@ gpu_unlock(){
   ok "card: $GPU_NAME at $addr"
   if command -v mokutil >/dev/null && mokutil --sb-state 2>/dev/null | grep -qi 'SecureBoot enabled'; then
     note "Secure Boot is on: the gpu-unlock module is unsigned and will not load unless you enrol a key (DKMS asks) or turn Secure Boot off"
+  fi
+  # Measured on an RTX 3070 Laptop (driver 595, kernel 7.0): the laptop settings below (runtime power management off)
+  # made every power-off panic in nv_pci_shutdown, and H3 - which runs on the INT8 path - gained about 1%.
+  note "experimental: on an RTX 3070 Laptop this made every shutdown end in a kernel panic, for ~1% on Video Studio"
+  if ls /sys/class/power_supply/BAT* >/dev/null 2>&1; then
+    note "this is a laptop: the shutdown panic above was seen on one - test a full power-off right after the reboot"
   fi
   if (( ! DRY )) && [[ -r /dev/tty ]]; then
     printf '      This builds a kernel module and changes the boot settings (a reboot applies it). Continue? [y/N] '

@@ -302,6 +302,8 @@ def build_proxy_app(tool: "ManagedProcess", hub: "Hub") -> FastAPI:
             try:
                 async for chunk in resp.aiter_raw():
                     yield chunk
+            except httpx.TransportError:    # the studio closed the stream early (a restart, an event stream ending)
+                pass
             finally:
                 await resp.aclose()
                 done()

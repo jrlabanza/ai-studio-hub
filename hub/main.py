@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from . import __version__
 from . import docker as dk
-from .config import APP_NAME, BRAND_DIR, DEFAULT_TOOLS, PLATFORM, WEB_DIR, load_settings, save_settings
+from .config import APP_NAME, BRAND_DIR, DEFAULT_TOOLS, PLATFORM, WEB_DIR, SECRET_KEYS, SECRET_MASK, load_settings, save_settings
 from .core import Hub
 from .files import ranged_file
 from .process import pick_free_port
@@ -111,13 +111,16 @@ def create_app(hub: Hub) -> FastAPI:
     # ------------------------------------------------------------------ settings
     @app.get("/api/settings")
     async def api_get_settings() -> dict[str, Any]:
-        return load_settings().to_dict()
+        return load_settings().to_public()
 
     @app.put("/api/settings")
     async def api_put_settings(request: Request) -> dict[str, Any]:
         data = await request.json()
         if not isinstance(data, dict):
             raise HTTPException(400, "Expected a JSON object")
+        for key in SECRET_KEYS:             # the shell shows a set token as the mask; saving that keeps it
+            if data.get(key) == SECRET_MASK:
+                data.pop(key)
         if "gpu_policy" in data and data["gpu_policy"] not in ("auto", "exclusive", "budget"):
             raise HTTPException(400, "gpu_policy must be auto, exclusive or budget")
         if "theme" in data and data["theme"] not in ("light", "dark"):
@@ -147,8 +150,8 @@ def create_app(hub: Hub) -> FastAPI:
                 except (TypeError, ValueError):
                     raise HTTPException(400, f"{key} must be a number")
         s = save_settings(data)
-        hub.bus.publish({"type": "settings", "settings": s.to_dict()})
-        return s.to_dict()
+        hub.bus.publish({"type": "settings", "settings": s.to_public()})
+        return s.to_public()
 
     # ------------------------------------------------------------------ tools
     def _tool(tool_id: str):

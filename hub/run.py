@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import socket
 import sys
 import threading
 import time
 import webbrowser
 from typing import Any
+from urllib.parse import urlsplit
 
 from . import __version__
 from .config import APP_NAME, PID_FILE, ROOT, ensure_dirs, load_settings
@@ -49,12 +51,44 @@ class Dispatcher:
         return await app(scope, receive, send)
 
 
+def cross_site(scope: dict, own_ports: set[int], settings: Any) -> bool:
+    """A state-changing request (or WebSocket) sent by some other website's page: any page in the browser could
+    otherwise POST to 127.0.0.1 and start downloads, delete models or stop studios. Browsers send Origin on such
+    requests; scripts and the studios' own server-side calls send none and pass. The hub's own pages (the shell and
+    the studio entrances, on this host or its public addresses) are same-site."""
+    if scope["type"] == "http" and scope.get("method", "GET") in ("GET", "HEAD", "OPTIONS"):
+        return False
+    origin = host = ""
+    for k, v in scope.get("headers") or []:
+        if k == b"origin":
+            origin = v.decode("latin-1").strip().lower()
+        elif k == b"host":
+            host = v.decode("latin-1").strip().lower()
+    if not origin or origin == "null":          # none: not a browser page; "null": blocks_origin decides
+        return False
+    try:
+        u = urlsplit(origin)
+        o_host, o_port = u.hostname or "", u.port or (443 if u.scheme == "https" else 80)
+    except ValueError:
+        return True
+    for key in ("public_url", "public_studio_pattern"):     # the hub's own public addresses
+        raw = str(getattr(settings, key, "") or "").strip()
+        h = (urlsplit(raw if "//" in raw else "//" + raw).hostname or "") if raw else ""
+        if h and (o_host == h or ("{studio}" in h and
+                                  re.fullmatch(re.escape(h).replace(re.escape("{studio}"), "[a-z0-9-]+"), o_host))):
+            return False
+    req_host = host.rsplit(":", 1)[0].strip("[]") if host else ""
+    local = {"localhost", "127.0.0.1", "::1"}
+    same_host = o_host == req_host or (o_host in local and req_host in local)
+    return not (same_host and o_port in own_ports)
+
+
 async def _refuse(scope, receive, send) -> None:
     if scope["type"] == "websocket":
         await receive()                                  # websocket.connect
         await send({"type": "websocket.close", "code": 1008})
         return
-    body = b'{"detail":"Requests from Sandbox pages are not allowed on the hub"}'
+    body = b'{"detail":"Requests from Sandbox pages or other websites are not allowed on the hub"}'
     await send({"type": "http.response.start", "status": 403,
                 "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
     await send({"type": "http.response.body", "body": body})
@@ -162,10 +196,18 @@ def main() -> None:
                         source="sandbox")
 
     hub_app = create_app(hub)
-    dispatcher = Dispatcher(hub_app, by_port, guard=lambda scope: blocks_origin(scope, {sb_port}, load_settings().sandbox_public_url),
-                            open_ports={sb_port}, on_refuse=on_refuse)
+    own_ports = {hub_port, *hub.proxy_ports.values()}
+
+    def guard(scope) -> bool:
+        return (blocks_origin(scope, {sb_port}, load_settings().sandbox_public_url)
+                or cross_site(scope, own_ports, load_settings()))
+
+    dispatcher = Dispatcher(hub_app, by_port, guard=guard, open_ports={sb_port}, on_refuse=on_refuse)
     config = uvicorn.Config(dispatcher, host=host, port=hub_port, log_level=args.log_level, access_log=False,
-                            ws_ping_interval=20, ws_ping_timeout=20, timeout_keep_alive=75, lifespan="on")
+                            ws_ping_interval=20, ws_ping_timeout=20, timeout_keep_alive=75, lifespan="on",
+                            # the shell's live event stream never ends by itself: without a limit uvicorn waits for the
+                            # browser tab to close, stop.sh gives up and kills the hub, and the studios are left running
+                            timeout_graceful_shutdown=5)
     server = uvicorn.Server(config)
 
     browse_host = "127.0.0.1" if host in ("0.0.0.0", "", "*") else host

@@ -83,14 +83,12 @@ async def render(port: int, p: dict, session: str, progress=None) -> dict:
         jobs = [j["id"] for j in (r.json().get("jobs") or [r.json()])]
         audios = []
         for jid in jobs:
-            while True:
-                await asyncio.sleep(4)
-                j = (await c.get(f"http://127.0.0.1:{port}/api/jobs/{jid}")).json()
+            def update(j: dict) -> None:
                 st = j.get("stage") or {}
                 if progress:
                     progress((st.get("label") if isinstance(st, dict) else st) or j.get("state"), 0)
-                if j.get("state") in ("done", "failed", "error", "cancelled"):
-                    break
+            j = await runtime.poll_job(c, f"http://127.0.0.1:{port}/api/jobs/{jid}",
+                                       lambda j: j.get("state") in ("done", "failed", "error", "cancelled"), 4, update)
             if j["state"] != "done":
                 raise RuntimeError(f"Music Studio: {j.get('error') or j['state']}")
             song = (j.get("result") or {}).get("song_id") or jid

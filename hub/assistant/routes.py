@@ -226,7 +226,7 @@ def register(app: FastAPI, hub) -> None:
     @app.get("/api/assistant/file/{sid}/{name}")
     async def file(sid: str, name: str):
         f = forge.OUT_DIR / sid / name
-        if "/" in name or ".." in name or not f.is_file():
+        if any("/" in x or "\\" in x or ".." in x or not x for x in (sid, name)) or not f.is_file():
             raise HTTPException(404, "not found")
         return FileResponse(f)
 

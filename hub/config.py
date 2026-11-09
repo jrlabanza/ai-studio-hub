@@ -115,6 +115,18 @@ class Settings:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    def to_public(self) -> dict[str, Any]:
+        """What the API and live state carry: the tokens only as "set" (anyone who can open the hub - the whole LAN
+        when sharing is on - could read them otherwise). A PUT of the mask leaves a token unchanged."""
+        d = asdict(self)
+        for key in SECRET_KEYS:
+            if d.get(key):
+                d[key] = SECRET_MASK
+        return d
+
+
+SECRET_KEYS = ("hf_token", "civitai_token")
+SECRET_MASK = "••••••••"
 
 _lock = threading.Lock()
 _settings: Settings | None = None
@@ -188,7 +200,9 @@ def save_settings(patch: dict[str, Any]) -> Settings:
                     continue
                 setattr(s, k, v)
         ensure_dirs()
-        SETTINGS_FILE.write_text(json.dumps(s.to_dict(), indent=2), encoding="utf-8")
+        tmp = SETTINGS_FILE.with_name(SETTINGS_FILE.name + ".tmp")     # a cut-short write must not lose every setting
+        tmp.write_text(json.dumps(s.to_dict(), indent=2), encoding="utf-8")
+        os.replace(tmp, SETTINGS_FILE)
     return s
 
 

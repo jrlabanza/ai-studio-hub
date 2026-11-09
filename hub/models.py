@@ -66,6 +66,27 @@ def _is_extra(rel: str) -> bool:
             or any(part in ("assets", "examples", "docs", "images", "figures") for part in p.parts[:-1]))
 
 
+def _host_is(url: str, domain: str) -> bool:
+    """The URL's own host is `domain` or a subdomain of it - not merely a URL that mentions it."""
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
+
+
+def _tqdm_class(dl: "Download"):
+    """A tqdm that lets "cancel" interrupt huggingface_hub at the next chunk."""
+    from tqdm.auto import tqdm as _tqdm
+
+    class _Tqdm(_tqdm):
+        def update(self_, n=1):
+            if dl.cancel.is_set():
+                raise CancelledDownload()
+            return super().update(n)
+
+    return _Tqdm
+
+
 def _safe_name(name: str) -> str:
     name = re.sub(r"[^\w.\- ()+]", "_", name.strip())
     return name.strip(". ") or "model"
@@ -384,21 +405,14 @@ class Models:
         t = threading.Thread(target=watch, daemon=True)
         t.start()
         try:
-            from tqdm.auto import tqdm as _tqdm
-
-            class _Tqdm(_tqdm):          # lets "cancel" interrupt the next chunk
-                def update(self_, n=1):
-                    if dl.cancel.is_set():
-                        raise CancelledDownload()
-                    return super().update(n)
-
-            snapshot_download(repo, local_dir=str(dl.dest), allow_patterns=patterns, token=token, max_workers=2, tqdm_class=_Tqdm)
+            snapshot_download(repo, local_dir=str(dl.dest), allow_patterns=patterns, token=token, max_workers=2,
+                              tqdm_class=_tqdm_class(dl))
         finally:
             stop.set()
         dl.progress(_dir_size(dl.dest), total)
 
     def _hf_file(self, dl: Download) -> None:
-        from huggingface_hub import hf_hub_download
+        from huggingface_hub import snapshot_download
 
         token = load_settings().hf_token or None
         repo, path = dl.source["repo"], dl.source["path"]
@@ -408,7 +422,7 @@ class Models:
         total = next((s.size or 0 for s in (info.siblings or []) if s.rfilename == path), 0)
         dl.dest.parent.mkdir(parents=True, exist_ok=True)
         stop = threading.Event()
-        tmp_dir = dl.dest.parent / ".hub-download" / dl.id
+        tmp_dir = dl.dest.parent / ".hub-download" / hashlib.sha1(f"{repo}/{path}".encode()).hexdigest()[:16]
 
         def watch() -> None:
             while not stop.wait(1.0):
@@ -418,10 +432,14 @@ class Models:
         t = threading.Thread(target=watch, daemon=True)
         t.start()
         try:
-            got = hf_hub_download(repo, path, local_dir=str(tmp_dir), token=token)
+            snapshot_download(repo, local_dir=str(tmp_dir), allow_patterns=[path], token=token, max_workers=1,
+                              tqdm_class=_tqdm_class(dl))
         finally:
             stop.set()
-        shutil.move(got, dl.dest)
+        got = tmp_dir / path
+        if not got.is_file():
+            raise RuntimeError(f"{path} is not in {repo}")
+        shutil.move(str(got), dl.dest)
         shutil.rmtree(tmp_dir, ignore_errors=True)
         dl.progress(dl.dest.stat().st_size, total or dl.dest.stat().st_size)
 
@@ -429,13 +447,16 @@ class Models:
         url = dl.source["url"]
         headers: dict[str, str] = {}
         s = load_settings()
-        if dl.source.get("type") == "civitai" or "civitai.com" in url:
+        if _host_is(url, "civitai.com"):
             if s.civitai_token:
                 headers["Authorization"] = f"Bearer {s.civitai_token}"
-        elif "huggingface.co" in url and s.hf_token:
+        elif (_host_is(url, "huggingface.co") or _host_is(url, "hf.co")) and s.hf_token:
             headers["Authorization"] = f"Bearer {s.hf_token}"
         dl.dest.parent.mkdir(parents=True, exist_ok=True)
-        part = dl.dest.with_name(dl.dest.name + ".part")
+        part = dl.dest.parent / f".hub-{hashlib.sha1(url.encode()).hexdigest()[:16]}.part"
+        legacy = dl.dest.with_name(dl.dest.name + ".part")      # where earlier versions kept it
+        if legacy.is_file() and not part.is_file():
+            legacy.replace(part)
         have = part.stat().st_size if part.is_file() else 0
         if have:
             headers["Range"] = f"bytes={have}-"
@@ -456,7 +477,6 @@ class Models:
                     m = re.search(r'filename\*?="?(?:UTF-8\'\')?([^";]+)', cd)
                     if m and not Path(dl.name).suffix:
                         dl.dest = dl.dest.with_name(_safe_name(m.group(1)))
-                        part = dl.dest.with_name(dl.dest.name + ".part")
                     dl.progress(have, total)
                     with open(part, "ab" if have else "wb") as fh:
                         for chunk in r.iter_bytes(chunk_size=1024 * 1024):
@@ -472,7 +492,13 @@ class Models:
             dl.status = "verifying"
             self._publish(dl)
             if self._sha256(part, dl) != sha:
+                part.unlink(missing_ok=True)        # kept, every retry would "resume" the same bad bytes
                 raise RuntimeError("checksum mismatch - the file was removed, try again")
+        if dl.dest.exists() and dl.dest.stat().st_size != part.stat().st_size:
+            n = 2                                   # a different file under the same name is kept, not overwritten
+            while (alt := dl.dest.with_name(f"{dl.dest.stem}-{n}{dl.dest.suffix}")).exists():
+                n += 1
+            dl.dest = alt
         part.replace(dl.dest)
 
     @staticmethod
@@ -491,6 +517,14 @@ class Models:
             return False
         dl.cancel.set()
         return True
+
+    def shutdown(self) -> None:
+        """Hub exit: stop at the next chunk (partial files resume next time) instead of keeping the process alive
+        until every download has finished."""
+        for dl in self.downloads.values():
+            if dl.active:
+                dl.cancel.set()
+        self.pool.shutdown(wait=False, cancel_futures=True)
 
     def clear_finished(self) -> None:
         for k in [k for k, d in self.downloads.items() if not d.active]:

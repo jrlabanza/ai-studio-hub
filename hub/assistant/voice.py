@@ -117,13 +117,11 @@ async def render(port: int, p: dict, session: str, progress=None) -> dict:
         if r.status_code != 200:
             raise RuntimeError(f"Voice Studio: {r.text[:300]}")
         jid = r.json()["job_id"]
-        while True:
-            await asyncio.sleep(2)
-            j = (await c.get(f"http://127.0.0.1:{port}/api/jobs/{jid}")).json()
+        def update(j: dict) -> None:
             if progress:
                 progress(j.get("message") or j.get("status"), j.get("progress") or 0)
-            if j.get("status") in ("done", "error"):
-                break
+        j = await runtime.poll_job(c, f"http://127.0.0.1:{port}/api/jobs/{jid}",
+                                   lambda j: j.get("status") in ("done", "error", "cancelled"), 2, update)
     if j["status"] != "done":
         raise RuntimeError(f"Voice Studio: {j.get('error') or 'failed'}")
     outs = (j.get("result") or {}).get("outputs") or []

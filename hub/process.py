@@ -116,6 +116,7 @@ class ManagedProcess:
         self.started_at = 0.0
         self.last_exit_code: int | None = None
         self.restart_count = 0
+        self._take_over = False         # the next compose up attaches to a running container (--no-recreate)
         self.log_lines: collections.deque[str] = collections.deque(maxlen=500)
         self.log_path = LOGS_DIR / f"{spec.id}.log"
         self._lock = asyncio.Lock()
@@ -280,6 +281,7 @@ class ManagedProcess:
                     self._publish()
                     return True
                 self._note(f"{self.spec.name}'s container is already running on port {wanted} - taking it over")
+                self._take_over = True
             elif answers:
                 self.state, self.error = "error", f"Port {wanted} is in use by something that is not {self.spec.name}"
                 self._note(self.error, "error")
@@ -288,6 +290,11 @@ class ManagedProcess:
 
             try:
                 LOGS_DIR.mkdir(parents=True, exist_ok=True)
+                try:                             # one previous copy is kept: a busy studio wrote 38 MB without this
+                    if self.log_path.stat().st_size > 20 * 2**20:
+                        os.replace(self.log_path, self.log_path.with_suffix(".log.1"))
+                except OSError:
+                    pass
                 self._log_fh = open(self.log_path, "a", encoding="utf-8", errors="replace")
                 notes = await loop.run_in_executor(None, self.spec.pre_launch, tdir, cfg)
                 for note in notes or []:
@@ -311,10 +318,11 @@ class ManagedProcess:
                 self._start_helpers(cfg)
             self._note(f"Starting {self.spec.name} on port {port} ({'container ' + self.spec.container_name() if self.is_docker else 'pid ' + str(self.proc.pid)})")
 
+            proc = self.proc                 # the exit handler clears self.proc as soon as the process ends
             deadline = time.time() + self.spec.startup_timeout
             while time.time() < deadline:
-                if self.proc.poll() is not None:
-                    code = self._exit_code(self.proc)
+                if proc.poll() is not None:
+                    code = await loop.run_in_executor(None, self._exit_code, proc)
                     tail = "\n".join(self.tail(6))
                     self.state, self.error = "error", f"{self.spec.name} exited during start-up (code {code}).\n{tail}"
                     self._note(f"{self.spec.name} exited during start-up with code {code}", "error")
@@ -352,6 +360,9 @@ class ManagedProcess:
         if not cmd:
             raise RuntimeError("Docker is not reachable")
         argv = [*cmd, "up", "--no-log-prefix", "--no-color", "--no-build"]
+        if self._take_over:     # a different override or setting would recreate it mid-job
+            argv.append("--no-recreate")
+            self._take_over = False
         if len(services) > 1:
             argv.append("--abort-on-container-exit")
         argv += services
@@ -412,12 +423,13 @@ class ManagedProcess:
             pass
         proc.wait()
         code = self._exit_code(proc)
+        oom = self.is_docker and code == 137 and dk.container_oom_killed(self.spec.container_name())
         if not tag:
             loop = self.hub.bus.loop
             if loop and loop.is_running():
-                loop.call_soon_threadsafe(self._on_exit, proc, code)
+                loop.call_soon_threadsafe(self._on_exit, proc, code, oom)
 
-    def _on_exit(self, proc: subprocess.Popen, code: int | None) -> None:
+    def _on_exit(self, proc: subprocess.Popen, code: int | None, oom: bool = False) -> None:
         if proc is not self.proc:
             return
         self.last_exit_code = code
@@ -425,10 +437,15 @@ class ManagedProcess:
         was = self.state
         self._stop_helpers()
         dk.forget("pid:")
-        stopped_outside = self.is_docker and code in (0, 137, 143)   # docker stop / ai stop / Ctrl+C elsewhere
+        stopped_outside = self.is_docker and code in (0, 137, 143) and not oom   # docker stop / ai stop / Ctrl+C elsewhere
         if was == "stopping":
             self.state = "stopped"
-        elif code in self.spec.restart_exit_codes and self.restart_count < 5:
+        elif oom and was in ("running", "starting"):
+            self.state, self.error = "error", f"{self.spec.name} was killed for running out of memory (RAM)"
+            self._note(self.error + " - close other studios or lower its RAM use in Settings", "error")
+        elif code in self.spec.restart_exit_codes and (self.restart_count < 5 or self._ran_a_while()):
+            if self._ran_a_while():          # the limit is for crash loops, not for one restart a day
+                self.restart_count = 0
             self.restart_count += 1
             self.state = "stopped"
             self._note(f"{self.spec.name} asked to be restarted (exit code {code}) - restarting", "warn")
@@ -449,6 +466,9 @@ class ManagedProcess:
                 pass
             self._log_fh = None
         self._publish()
+
+    def _ran_a_while(self) -> bool:
+        return bool(self.started_at) and time.time() - self.started_at > 600
 
     async def _kill(self) -> None:
         proc = self.proc

@@ -103,14 +103,12 @@ async def render(port: int, p: dict, out_dir, session: str, progress=None) -> di
         job_ids = r.json().get("job_ids") or [r.json().get("job_id")]
         urls = []
         for jid in job_ids:
-            while True:
-                await asyncio.sleep(3)
-                j = (await c.get(f"http://127.0.0.1:{port}/api/jobs/{jid}")).json()
+            def update(j: dict) -> None:
                 pr = j.get("progress") or {}
                 if progress:
                     progress(pr.get("message") or j.get("status"), (pr.get("percent") or 0) / 100)
-                if j.get("status") in ("done", "error", "failed", "cancelled"):
-                    break
+            j = await runtime.poll_job(c, f"http://127.0.0.1:{port}/api/jobs/{jid}",
+                                       lambda j: j.get("status") in ("done", "error", "failed", "cancelled"), 3, update)
             if j["status"] != "done":
                 raise RuntimeError(f"Image Studio: {j.get('error') or j['status']}")
             for res in j.get("results") or []:

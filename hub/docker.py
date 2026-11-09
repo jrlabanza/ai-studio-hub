@@ -109,7 +109,9 @@ def compose(compose_file: Path, profiles: tuple[str, ...] = (), overrides: tuple
         return None
     cmd = [*dk]
     if dk[0] == "sudo":
-        cmd = ["sudo", "-n", "--preserve-env=AI_UID,AI_GID,AI_VIDEO_GID,AI_RENDER_GID,AI_CACHE,AI_BIND,AI_HUB_URL", *dk[2:]]
+        # every variable a compose file or hub/compose/*.yml reads: without AI_HF_DIR the override mounts ":/cache/hf"
+        keep = "AI_UID,AI_GID,AI_VIDEO_GID,AI_RENDER_GID,AI_CACHE,AI_BIND,AI_HUB_URL,AI_HF_DIR,AI_PIN_MEMORY,HSA_OVERRIDE_GFX_VERSION,VIDEOGEN_MODELS_DIR"
+        cmd = ["sudo", "-n", f"--preserve-env={keep}", *dk[2:]]
     cmd += ["compose", "-f", str(compose_file)]
     for o in overrides:
         cmd += ["-f", str(o)]
@@ -153,6 +155,18 @@ def container_exit_code(name: str) -> int | None:
         return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip().lstrip("-").isdigit() else None
     except Exception:
         return None
+
+
+def container_oom_killed(name: str) -> bool:
+    """Docker saw the container's cgroup run out of memory (exit 137 then means "killed for RAM", not "stopped")."""
+    dk = docker()
+    if not dk:
+        return False
+    try:
+        r = _run([*dk, "inspect", "--format", "{{.State.OOMKilled}}", name], timeout=10)
+        return r.returncode == 0 and r.stdout.strip() == "true"
+    except Exception:
+        return False
 
 
 def container_pid(name: str) -> int | None:
