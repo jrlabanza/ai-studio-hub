@@ -739,9 +739,10 @@ class VideoTool(ToolSpec):
     )
 
     def models_dir(self, tool_dir: Path) -> Path:
-        """The repo's models/ - or, on Linux, the ComfyUI model store linux/.env points at."""
+        """The repo's models/ - or the shared ComfyUI model store: linux/.env on Linux, and anywhere the
+        VIDEOGEN_MODELS_DIR environment variable that Video Studio itself reads (backend/app/paths.py)."""
         env = dk.read_env_file(tool_dir / "linux" / ".env") if (IS_LINUX or self.backend(tool_dir) == "docker") else {}
-        custom = env.get("VIDEOGEN_MODELS_DIR")
+        custom = env.get("VIDEOGEN_MODELS_DIR") or os.environ.get("VIDEOGEN_MODELS_DIR")
         if custom:
             p = Path(custom)
             if not p.is_absolute():
@@ -1010,11 +1011,24 @@ class ForgeTool(ToolSpec):
                 "--skip-python-version-check", "--skip-version-check", "--skip-torch-cuda-test", "--disable-gpu-warning"]
         if self.gpu_profile(tool_dir).get("backend", "cuda") == "cuda":
             argv += ["--pin-shared-memory", "--cuda-malloc", "--cuda-stream"]      # CUDA allocator / stream tricks
+            # Comfy-Kitchen INT8 attention instead of SageAttention: on an RTX 5080 (Blackwell) SageAttention 2.2 turned
+            # anima renders to NaN - every image black - and its fp16 kernel crashed Forge; Comfy-Kitchen rendered
+            # them clean at about 5% less speed (25.2 against 23.9 s per image), SDXL included.
+            argv += ["--use-ck-attention"]
+            # fp16 accumulation in matrix multiplies: measured on the RTX 5080, Anima 25.5 -> 22.0 s and SDXL
+            # 12.6 -> 10.6 s per image with equally clean results (a seed no longer reproduces older images exactly).
+            argv += ["--fast-fp16"]
         else:
             argv += ["--use-pytorch-cross-attention"]                              # ROCm: SDPA, no SageAttention / xformers
         if (tool_dir / "tools" / ".portable").is_file():
             argv.append("--skip-install")
         return argv
+
+    def env(self, tool_dir: Path, cfg: dict[str, Any]) -> dict[str, str]:
+        # Forge opens the system browser on a local start (its "Launch the webui in browser on startup"
+        # setting defaults to Local). The studio is shown inside the hub, so it must not. Forge skips that
+        # when it believes it is restarting, and the browser launch is the only thing this variable changes.
+        return {**BASE_ENV, "SD_WEBUI_RESTARTING": "1"}
 
     def health_ok(self, status_code: int, body: Any) -> bool:
         return status_code == 200
