@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -375,6 +376,11 @@ class Models:
             if dl.cancel.is_set():
                 raise CancelledDownload()
             dl.status, dl.message = "done", f"{dl.name} ready in {dl.dest.parent}"
+            try:
+                self._write_source_record(dl)
+            except Exception as exc:        # the model itself is fine; only its note is missing
+                self.hub.bus.log_threadsafe(f"{dl.name}: could not save where it came from ({str(exc)[:160]})",
+                                            tool=dl.tool, level="warn", source="models")
         except CancelledDownload:
             dl.status, dl.message = "cancelled", "cancelled - partial files are kept and resume next time"
         except Exception as exc:
@@ -500,6 +506,74 @@ class Models:
                 n += 1
             dl.dest = alt
         part.replace(dl.dest)
+
+    # ------------------------------------------------------------------ source records
+    def _write_source_record(self, dl: Download) -> None:
+        """Save where a finished download came from, next to it, so it can be found (and fetched) again.
+
+        A Civitai file gets ``<name>.civitai.json`` in the same trimmed form as Forge's Civitai helper writes (version,
+        model, base model, trigger words, preview links, page) plus its download link and sha256: Forge's LoRA page
+        reads the base model from it to show only the LoRAs that fit the loaded model. Anything else gets
+        ``<name>.source.json`` (the link, or the HuggingFace repo and path). An existing record is never replaced.
+        """
+        src = dl.source
+        target = dl.dest
+        if not target.exists():
+            return
+        stem = target.with_suffix("") if target.is_file() else target
+        url = str(src.get("url") or "")
+        sha = str(src.get("sha256") or "").lower()
+        if src.get("type") == "civitai" or (url and _host_is(url, "civitai.com")):
+            civ = stem.parent / (stem.name + ".civitai.json")
+            if civ.exists():
+                return
+            if not sha and target.is_file():
+                sha = self._sha256(target)
+            headers = {"User-Agent": "ai-studio-hub"}
+            token = load_settings().civitai_token
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            with httpx.Client(timeout=20.0, trust_env=False) as client:
+                r = client.get(f"{CIVITAI_API}/model-versions/by-hash/{sha}", headers=headers)
+            if r.status_code == 200:
+                data = r.json()
+                trimmed = {
+                    "versionId": data.get("id"),
+                    "versionName": data.get("name"),
+                    "modelId": data.get("modelId"),
+                    "modelName": (data.get("model") or {}).get("name"),
+                    "baseModel": data.get("baseModel"),
+                    "trainedWords": data.get("trainedWords") or [],
+                    "images": [im.get("url") for im in (data.get("images") or []) if im.get("url")][:3],
+                    "page": src.get("page") or f"https://civitai.com/models/{data.get('modelId')}",
+                    "downloadUrl": url or data.get("downloadUrl"),
+                    "sha256": sha,
+                }
+                civ.write_text(json.dumps(trimmed, indent=2, ensure_ascii=False), encoding="utf-8")
+                return
+            # Civitai does not know this file by its hash: fall through to the plain record
+        rec = stem.parent / (stem.name + ".source.json")
+        if rec.exists():
+            return
+        record: dict[str, Any] = {"source": src.get("type")}
+        if src.get("type") in ("hf", "hf_file"):
+            record["repo"] = src.get("repo")
+            if src.get("path"):
+                record["path"] = src.get("path")
+                record["url"] = f"https://huggingface.co/{src.get('repo')}/resolve/main/{src.get('path')}"
+            else:
+                record["url"] = f"https://huggingface.co/{src.get('repo')}"
+                if src.get("allow_patterns"):
+                    record["allow_patterns"] = src.get("allow_patterns")
+        else:
+            record["url"] = url
+        if src.get("page"):
+            record["page"] = src.get("page")
+        if sha:
+            record["sha256"] = sha
+        record["file"] = target.name
+        record["downloaded"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        rec.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
 
     @staticmethod
     def _sha256(path: Path, dl: Download | None = None) -> str:

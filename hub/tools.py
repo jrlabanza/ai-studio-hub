@@ -21,6 +21,16 @@ from typing import Any
 
 from . import docker as dk
 
+
+def _nvidia_compute_major() -> int:
+    """The highest CUDA compute capability major of the NVIDIA cards here (12 = RTX 50 series), 0 when unknown."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"], capture_output=True,
+                             text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        return max((int(line.split(".")[0]) for line in out.split() if line.split(".")[0].isdigit()), default=0)
+    except Exception:
+        return 0
+
 IS_WINDOWS = sys.platform == "win32"
 IS_LINUX = sys.platform.startswith("linux")
 DEFAULT_TTS_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
@@ -1011,13 +1021,13 @@ class ForgeTool(ToolSpec):
                 "--skip-python-version-check", "--skip-version-check", "--skip-torch-cuda-test", "--disable-gpu-warning"]
         if self.gpu_profile(tool_dir).get("backend", "cuda") == "cuda":
             argv += ["--pin-shared-memory", "--cuda-malloc", "--cuda-stream"]      # CUDA allocator / stream tricks
-            # Comfy-Kitchen INT8 attention instead of SageAttention: on an RTX 5080 (Blackwell) SageAttention 2.2 turned
-            # anima renders to NaN - every image black - and its fp16 kernel crashed Forge; Comfy-Kitchen rendered
-            # them clean at about 5% less speed (25.2 against 23.9 s per image), SDXL included.
-            argv += ["--use-ck-attention"]
-            # fp16 accumulation in matrix multiplies: measured on the RTX 5080, Anima 25.5 -> 22.0 s and SDXL
-            # 12.6 -> 10.6 s per image with equally clean results (a seed no longer reproduces older images exactly).
-            argv += ["--fast-fp16"]
+            if _nvidia_compute_major() >= 12:
+                # RTX 50 series (Blackwell) only, as in webui-user.bat. Comfy-Kitchen INT8 attention instead of
+                # SageAttention: on an RTX 5080 SageAttention 2.2 turned Anima renders to NaN - every image black - and
+                # its fp16 kernel crashed Forge; Comfy-Kitchen rendered them clean at about 5% less speed. fp16
+                # accumulation: Anima 25.5 -> 22.0 s and SDXL 12.6 -> 10.6 s per image there. Older cards keep
+                # SageAttention, which works on them.
+                argv += ["--use-ck-attention", "--fast-fp16"]
         else:
             argv += ["--use-pytorch-cross-attention"]                              # ROCm: SDPA, no SageAttention / xformers
         if (tool_dir / "tools" / ".portable").is_file():
