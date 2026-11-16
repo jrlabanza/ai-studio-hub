@@ -43,6 +43,20 @@ or cancelled; HuggingFace downloads resume through the HuggingFace cache. Downlo
 hub (two at a time), survive leaving the page, show in the **Downloads** panel with speed and ETA,
 and finish with a toast. The activity feed logs the outcome.
 
+Every finished download gets a **source record** next to it, so the model can be identified and fetched
+again later:
+
+* Civitai files (and direct links on civitai.com) get `<name>.civitai.json`, from Civitai's
+  `model-versions/by-hash/<sha256>` lookup, in the format Forge's Civitai helper writes - `versionId`,
+  `versionName`, `modelId`, `modelName`, `baseModel`, `trainedWords`, up to three preview `images`, `page` -
+  plus `downloadUrl` and `sha256`. Forge's LoRA picker reads `baseModel` from it.
+* Anything else (a direct link, a HuggingFace file or folder, or a Civitai file Civitai does not know by its
+  hash) gets `<name>.source.json`: the source type, the link (or HuggingFace `repo` and `path`), the checksum
+  when there is one, the file name and the download time. A HuggingFace folder's record sits beside the folder.
+
+An existing record is never overwritten, and a failure to write one never fails the download (the activity
+feed notes it).
+
 The catalogue entries (the models a studio was built around) have a **Download** button when
 missing and **Verify** / **Redownload** when installed: *Verify* checks every file of a HuggingFace
 folder against the repository (presence and size; documentation and demo assets are ignored) and

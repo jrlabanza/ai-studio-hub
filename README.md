@@ -21,6 +21,20 @@ studio out of the shell when its folder is empty, and also picks up a checkout t
 Runs on **Windows** (each tool in its own Python environment) and on **Linux** (each tool in its own Docker
 container, the `linux/` packaging every studio ships).
 
+## What's new - November 2026
+
+* **Every download says where it came from.** When a download on the Models page finishes, the hub saves a record
+  next to the model: `<name>.civitai.json` for Civitai files (looked up by SHA-256, in the same format as Forge's
+  Civitai helper: model, version, base model, trigger words, page, download link, checksum) or `<name>.source.json`
+  for a direct link or a HuggingFace file (the link, or the repo and path). An existing record is never replaced.
+  Forge's LoRA picker reads the base model from the Civitai record to show only the LoRAs that fit the loaded model.
+* **Forge on RTX 50 cards.** On an NVIDIA card with CUDA compute capability 12 or higher (RTX 50 / Blackwell) the hub
+  starts Forge with `--use-ck-attention --fast-fp16` (Comfy-Kitchen INT8 attention, which renders clean where
+  SageAttention 2 gave black images, and fp16 accumulation, 14-16 % faster). Other cards are started as before.
+* **Forge opens inside the hub only.** Forge started by the hub no longer opens a browser tab of its own.
+* **Video Studio finds a shared model folder.** The Video tool honours `VIDEOGEN_MODELS_DIR`, so the hub sees MiniMax H3
+  packs kept in a shared ComfyUI models folder instead of reporting that no model pack is downloaded.
+
 ## What it looks like
 
 ![Home - the card, the studios and what the hub did](docs/screenshots/home.png)
