@@ -30,7 +30,8 @@ KIND_LABELS = {
     "t2v": "text to video", "i2v": "image to video", "flf2v": "first + last frame video", "swap": "character swap",
     "storyboard": "storyboard", "ref2v": "reference video", "extend": "extend", "edit": "video edit",
     "motion": "motion transfer", "keyframe": "keyframe animation", "facerefine": "face refine", "sequence": "timeline export",
-    "subtitles": "subtitles", "reframe": "reframe", "grade": "colour grade", "generate": "generation",
+    "subtitles": "subtitles", "reframe": "reframe", "grade": "colour grade", "smooth": "smooth x2", "deflicker": "deflicker",
+    "generate": "generation",
     "song": "song", "load_model": "model load", "enhance": "prompt rewrite",
 }
 MODEL_LABELS = {"h3": "MiniMax H3", "ltx25": "LTX-2.5"}
