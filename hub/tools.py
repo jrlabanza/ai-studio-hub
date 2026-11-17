@@ -595,6 +595,8 @@ class TtsTool(ToolSpec):
         "/api/drama/generate", "/api/drama/ref",   # Drama tab: Fish Audio Drama-3 (~7 GB VRAM) / Whisper
         "/api/drama/revise", "/api/drama/edit", "/api/drama/infill",   # the same Drama-3 job, from a take
     )) + ((GET_POST, "/api/subtitles/"),)
+    # Long-form: putting an earlier take back or deleting a segment only joins the saved clips again - no model
+    claim_exclude_suffixes = ("/choose", "/delete")
     followup_prefixes = ("/api/models/load", "/api/tokenizer/", "/api/transcribe", "/api/quality/", "/api/drama/ref",
                          "/api/pronunciation/preview")
     job_status_path = "/api/jobs/{id}"
