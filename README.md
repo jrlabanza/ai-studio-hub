@@ -23,6 +23,10 @@ container, the `linux/` packaging every studio ships).
 
 ## What's new - November 2026
 
+* **Voice Studio long-form edits skip the GPU queue.** Putting an earlier take of a segment back, or deleting a
+  segment, only joins the saved clips again, so the hub no longer claims the GPU (or makes a running render in another
+  studio wait) for it. Generating and retaking still claim it as before.
+* **Notifications name more Video Studio jobs:** Smooth x2 and the new Deflicker.
 * **Every download says where it came from.** When a download on the Models page finishes, the hub saves a record
   next to the model: `<name>.civitai.json` for Civitai files (looked up by SHA-256, in the same format as Forge's
   Civitai helper: model, version, base model, trigger words, page, download link, checksum) or `<name>.source.json`
