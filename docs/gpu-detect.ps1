@@ -41,18 +41,27 @@ function Get-AmdSupport([string]$Name, [string]$Gfx) {
 
 function Get-StudioGpu {
   param([string]$Force = "", [string]$Gfx = "")
-  $gpu = @{ vendor = "cpu"; backend = "cpu"; name = ""; gfx = ""; vram_mb = 0; driver = ""; cuda_tag = ""; torch_args = @(); note = "" }
+  $gpu = @{ vendor = "cpu"; backend = "cpu"; name = ""; gfx = ""; vram_mb = 0; driver = ""; cc = ""; cuda_tag = ""; torch_args = @(); note = "" }
 
   # 1. NVIDIA
   $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
   if (-not $smi -and (Test-Path "$env:SystemRoot\System32\nvidia-smi.exe")) { $smi = "$env:SystemRoot\System32\nvidia-smi.exe" }
   if (($Force -eq "" -or $Force -eq "nvidia") -and $smi) {
-    $line = & $smi --query-gpu=driver_version,name,memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1
+    # the whole output, then its first line: "| Select-Object -First 1" on a native command can stop it early and lose it
+    $out = @(& $smi --query-gpu=driver_version,name,memory.total --format=csv,noheader,nounits 2>$null)
+    $line = if ($out.Count) { "$($out[0])" } else { "" }
     if ($line) {
       $p = $line -split ","
       $gpu.vendor = "nvidia"; $gpu.backend = "cuda"; $gpu.driver = $p[0].Trim(); $gpu.name = $p[1].Trim(); $gpu.vram_mb = [int]$p[2].Trim()
+      $ccOut = @(& $smi --query-gpu=compute_cap --format=csv,noheader 2>$null)   # a separate query: old drivers lack the field
+      if ($ccOut.Count -and "$($ccOut[0])".Trim() -match "^\d+\.\d+$") { $gpu.cc = "$($ccOut[0])".Trim() }
       $major = [int]($gpu.driver -split "\.")[0]
-      $gpu.cuda_tag = if ($major -ge 580) { "cu130" } elseif ($major -ge 528) { "cu126" } else { "cu126" }
+      # CUDA 13.0 wheels need driver 580+, CUDA 12.8 wheels 570+ - the first with RTX 50 (Blackwell, sm_120) kernels.
+      # CUDA 12.6 has no sm_120: it is only for older drivers, which an RTX 50 card cannot use anyway.
+      $gpu.cuda_tag = if ($major -ge 580) { "cu130" } elseif ($major -ge 570) { "cu128" } else { "cu126" }
+      if ($gpu.cuda_tag -eq "cu126" -and $gpu.cc -and [double]$gpu.cc -ge 10) {
+        $gpu.note = "driver $($gpu.driver) is too old for this card ($($gpu.name)) - update the NVIDIA driver to 580 or newer (nvidia.com/drivers), then run this again"
+      }
       $gpu.torch_args = @("torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/$($gpu.cuda_tag)")
       if ($Force -eq "nvidia" -or $Force -eq "") { return $gpu }
     }

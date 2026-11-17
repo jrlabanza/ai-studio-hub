@@ -83,18 +83,38 @@ irm https://raw.githubusercontent.com/jrlabanza/ai-studio-hub/main/install.ps1 |
 
 What it does, in order:
 
-1. **Checks the machine** and prints the graphics card it found. Installs what is missing - Linux: git, curl,
-   python3-venv, the NVIDIA driver (`ubuntu-drivers install`, then it asks for a reboot and you run the same command
-   again), Docker with the compose plugin and, on NVIDIA, the NVIDIA Container Toolkit (the studios' own
-   `linux/install-docker.sh`; plain Docker on AMD). Windows: Git, Python 3.11 and the Visual C++ runtime with winget
-   (the studios run natively there, no Docker).
+1. **Checks the machine** and prints the graphics card it found (name, VRAM, compute capability, driver). Installs
+   what is missing - Linux: git, curl, python3-venv, ffmpeg, the NVIDIA driver (`ubuntu-drivers install`, then it asks
+   for a reboot and you run the same command again), Docker with the compose plugin and, on NVIDIA, the NVIDIA
+   Container Toolkit (the studios' own `linux/install-docker.sh`; plain Docker on AMD). Windows, with winget: Git,
+   Python 3.11, the Visual C++ runtime, ffmpeg, llama.cpp (`llama-server`, Video Studio's Omni prompt rewriter) and
+   Ollama (the assistant's language model) - the studios run natively there, no Docker.
+
+   **NVIDIA driver.** The Linux images are built on CUDA 13 and need driver **580 or newer**; the installer stops with
+   the upgrade command when it is older. On Windows each studio picks its PyTorch build from the driver - 580+: CUDA
+   13 (`cu130`), 570+: `cu128`, older: `cu126`. An RTX 50 card (Blackwell) needs at least 570, so the installer stops
+   there too rather than install a PyTorch build that cannot run on it.
 2. **Gets the code**: clones the hub into `~/AI/ai-studio-hub` (Windows: `%USERPROFILE%\AI\ai-studio-hub`), or uses the
    clone it runs from, and fetches each studio's submodule. A studio already checked out next to the hub folder (the
    `~/AI` layout) is used as it is. A studio whose repository you cannot access is left out; the hub runs with the
    others.
 3. **Sets up each studio with its own initializer**, without questions: `linux/initialize.sh` on Linux (the CUDA or
    ROCm image, its default models, a boot test), `Initialize.bat` / `initialize.bat` on Windows (its own `.venv`,
-   PyTorch for the card, its default models). Studio containers that are already running are not restarted.
+   PyTorch for the card, its default models). Studio containers that are already running are not restarted. That
+   covers everything each studio needs, not only its main environment:
+
+   - **Music Studio**: also its helper environments (voice conversion with Seed-VC at a pinned commit, stems, export,
+     lyrics sync, covers) and the cover models (SheetSage2, MERT, the legacy VAE - about 2.7 GB).
+   - **Voice Studio**: Chatterbox is left out on RTX 50 - it pins a PyTorch build without Blackwell support; Qwen3-TTS
+     and the other voices run as usual.
+   - **Forge**: its default checkpoint and LoRA come from Civitai, which needs an API key (free, civitai.com → Account
+     settings → API keys). The installer uses `forge/tools/civitai_token.txt` if it is there, else asks once (or
+     `-CivitaiToken KEY` / `--civitai-token KEY`) and saves it there - git ignores that file. Without a key Forge is set
+     up without those two models.
+
+   After the studios, the Windows installer runs a small calculation on the GPU in every studio environment (not just
+   `torch.cuda.is_available()`), so a PyTorch build that cannot run on the card shows up here, not at the first render.
+   A studio that fails is named at the end; the others carry on.
 4. **Sets up the hub** (`linux/initialize.sh` / `Initialize AI Studio Hub.bat`), **starts it** (Linux: in the
    background, `linux/stop.sh` stops it; Windows: in its own window, close it to stop) and opens the browser.
 5. **Fetches Video Studio's model pack**: it starts Video Studio once through the hub and queues the *one* MiniMax H3
@@ -110,13 +130,18 @@ What it does, in order:
    With less than 28 GB of RAM (44 GB on AMD) it is the compact `h3-mixed-int4`. The download runs in the background;
    Video Studio → Models (or the hub's Models page) shows it. The other studios download what their own initializers
    download by default.
+6. **Fetches the assistant's language model** (`qwen3:4b`, 2.5 GB) into Ollama - Windows: the installed Ollama, which
+   the hub starts when it is not running; Linux: the `ai-assistant-llm` container. The assistant loads it only while it
+   plans and frees the GPU right after.
 
 | Linux | Windows | |
 |---|---|---|
 | `--dir DIR` | `-Dir DIR` | where the hub lives |
 | `--skip forge,music` | `-Skip forge,music` | leave studios out: `image`, `voice`, `video`, `music`, `forge` |
 | `--no-start` | `-NoStart` | set everything up, do not start the hub |
-| `--no-models` | `-NoModels` | environments only, where a studio's setup allows it (Video Studio's pack included) |
+| `--no-models` | `-NoModels` | environments only, where a studio's setup allows it (Video Studio's pack and the assistant's model included) |
+| `--no-assistant` | `-NoAssistant` | no Ollama and no assistant model |
+| `--civitai-token KEY` | `-CivitaiToken KEY` | Forge's Civitai API key (saved to `forge/tools/civitai_token.txt`) |
 | `--no-browser` | `-NoBrowser` | do not open the browser |
 | `--no-desktop` | | no app-menu entry |
 | `--autostart` | | start the hub when you log in (systemd user service; `linux/install-autostart.sh --remove` undoes it) |
@@ -125,7 +150,8 @@ What it does, in order:
 
 With the one-liners, options go after `bash -s --` on Linux (`curl -fsSL …/install.sh | bash -s -- --skip forge`); in
 PowerShell use `& ([scriptblock]::Create((irm …/install.ps1))) -Skip forge`, or set `AI_HUB_SKIP=forge`,
-`AI_HUB_DIR`, `AI_HUB_NO_START=1`, `AI_HUB_NO_MODELS=1`, `AI_HUB_DRY_RUN=1` before `irm … | iex`.
+`AI_HUB_DIR`, `AI_HUB_NO_START=1`, `AI_HUB_NO_MODELS=1`, `AI_HUB_NO_ASSISTANT=1`, `AI_HUB_CIVITAI_TOKEN=…`,
+`AI_HUB_DRY_RUN=1` before `irm … | iex` (`AI_HUB_CIVITAI_TOKEN` works for `install.sh` too).
 
 **gpu-unlock (Linux, opt-in, experimental).** GeForce cards run FP16 / BF16 tensor math at half the rate of the same
 chip sold as a professional card; [gpu-unlock](https://github.com/Zagitta/gpu-unlock) lifts that cap at boot. Measured on

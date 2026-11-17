@@ -10,14 +10,19 @@
     -NoStart       set everything up, but do not start the hub
     -NoModels      environments only, where a studio's setup allows it (Video Studio's pack included)
     -NoBrowser     do not open the browser at the end
+    -NoAssistant   no Ollama and no assistant model (the hub's assistant and prompt writer need them)
+    -CivitaiToken KEY  a Civitai API key (civitai.com > Account settings > API Keys): Forge's default checkpoint and
+                   LoRA are on Civitai. Without one the installer asks; it also reuses Forge's tools\civitai_token.txt
     -DryRun        print every step it would take and change nothing
 
   With "irm | iex" the options can also come from environment variables: AI_HUB_DIR, AI_HUB_SKIP,
-  AI_HUB_NO_START=1, AI_HUB_NO_MODELS=1, AI_HUB_NO_BROWSER=1, AI_HUB_DRY_RUN=1.
+  AI_HUB_NO_START=1, AI_HUB_NO_MODELS=1, AI_HUB_NO_BROWSER=1, AI_HUB_NO_ASSISTANT=1, AI_HUB_DRY_RUN=1,
+  AI_HUB_CIVITAI_TOKEN=KEY.
 
-  Steps: 1 checks and graphics card  2 Git, Python 3.11 and the VC++ runtime (winget)  3 the code
+  Steps: 1 checks and graphics card  2 Git, Python 3.11, the VC++ runtime, ffmpeg, llama.cpp and Ollama (winget)  3 the code
          4 the studios, each with its own Windows initializer (own Python environment, PyTorch for the card,
-           models)  5 the hub (Initialize AI Studio Hub.bat)  6 start the hub + Video Studio's model pack
+           models)  5 the hub (Initialize AI Studio Hub.bat)  6 start the hub, Video Studio's model pack and the
+           assistant's language model (qwen3:4b in Ollama)
   Safe to re-run: every step checks first, and the studios' initializers skip what is done.
   On Windows the studios run natively (each in its own .venv); Docker is not needed.
 #>
@@ -27,6 +32,8 @@ param(
   [switch]$NoStart,
   [switch]$NoModels,
   [switch]$NoBrowser,
+  [switch]$NoAssistant,
+  [string]$CivitaiToken = "",
   [switch]$DryRun
 )
 
@@ -48,6 +55,8 @@ function Install-AIStudioHub {
   $start = -not ([bool]$NoStart -or $env:AI_HUB_NO_START -eq "1")
   $models = -not ([bool]$NoModels -or $env:AI_HUB_NO_MODELS -eq "1")
   $browser = -not ([bool]$NoBrowser -or $env:AI_HUB_NO_BROWSER -eq "1")
+  $assistant = -not ([bool]$NoAssistant -or $env:AI_HUB_NO_ASSISTANT -eq "1")
+  if (-not $CivitaiToken -and $env:AI_HUB_CIVITAI_TOKEN) { $CivitaiToken = $env:AI_HUB_CIVITAI_TOKEN }
   $skipped = @{}
   foreach ($s in ($skipList -join ",") -split "[,\s]+") {
     if (-not $s) { continue }
@@ -82,7 +91,7 @@ function Install-AIStudioHub {
   # A .bat run to its end without stopping: "<nul" answers its closing "pause"
   function Invoke-Bat([string]$Bat, [string]$BatArgs, [string]$WorkDir) {
     $line = "`"$Bat`" $BatArgs".TrimEnd()
-    if ($dry) { Write-Host "      would run: $line" -ForegroundColor Cyan; return 0 }
+    if ($dry) { Write-Host ("      would run: " + ($line -replace "(-CivitaiToken )\S+", '$1<key>')) -ForegroundColor Cyan; return 0 }
     $p = Start-Process -FilePath $env:ComSpec -ArgumentList "/d /s /c `"$line <nul`"" -WorkingDirectory $WorkDir -NoNewWindow -Wait -PassThru
     return $p.ExitCode
   }
@@ -103,12 +112,15 @@ function Install-AIStudioHub {
   Ok ("memory: {0} GB" -f [math]::Round($ramMb / 1024))
   $gpu = @{ vendor = "none"; name = ""; vram = 0; cc = ""; driver = "" }
   if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    $line = & nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader,nounits 2>$null | Select-Object -First 1
-    if ($LASTEXITCODE -eq 0 -and $line) {
+    # the whole output first, then its first line: "| Select-Object -First 1" on a native command can stop it early,
+    # and then $LASTEXITCODE reads -1 and the answer was thrown away (it dropped an RTX 5080's compute capability)
+    $out = @(& nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader,nounits 2>$null)
+    $line = if ($LASTEXITCODE -eq 0 -and $out.Count) { "$($out[0])" } else { "" }
+    if ($line) {
       $f = $line -split ","
       $gpu.vendor = "nvidia"; $gpu.name = $f[0].Trim(); $gpu.vram = [int]($f[1].Trim() -replace "[^0-9]", ""); $gpu.driver = $f[2].Trim()
-      $cc = & nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null | Select-Object -First 1
-      if ($LASTEXITCODE -eq 0 -and "$cc".Trim() -match "^\d+\.\d+$") { $gpu.cc = "$cc".Trim() }
+      $ccOut = @(& nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null)
+      if ($LASTEXITCODE -eq 0 -and $ccOut.Count -and "$($ccOut[0])".Trim() -match "^\d+\.\d+$") { $gpu.cc = "$($ccOut[0])".Trim() }
     }
   }
   if ($gpu.vendor -eq "none") {
@@ -124,9 +136,15 @@ function Install-AIStudioHub {
     "amd" { Ok ("graphics card: {0} (AMD) -> AMD's PyTorch-on-ROCm wheels where the studio supports them" -f $gpu.name) }
     default { Note "graphics card: no NVIDIA or AMD card found - the studios install their CPU builds, which are slow or unusable for most models" }
   }
+  if ($gpu.vendor -eq "nvidia" -and $gpu.driver) {
+    $drvMajor = 0; [void][int]::TryParse(($gpu.driver -split "\.")[0], [ref]$drvMajor)
+    $blackwell = $gpu.cc -and [double]$gpu.cc -ge 10
+    if ($drvMajor -lt 570 -and $blackwell) { Bad ("driver {0} is too old for {1} - install NVIDIA driver 580 or newer (nvidia.com/drivers), then run this again" -f $gpu.driver, $gpu.name); if (-not $dry) { throw "the NVIDIA driver is too old for this graphics card" } }
+    elseif ($drvMajor -lt 580) { Note ("driver {0}: update to 580 or newer when you can (nvidia.com/drivers) - Forge uses CUDA 13 builds, which need it; the other studios pick an older CUDA build meanwhile" -f $gpu.driver) }
+  }
 
   # ---- 2. Git, Python 3.11, VC++ runtime ---------------------------------------
-  Say "2/6" "Git, Python 3.11 and the Visual C++ runtime"
+  Say "2/6" "Git, Python 3.11, the Visual C++ runtime, ffmpeg, llama.cpp and Ollama"
   $winget = Get-Command winget -ErrorAction SilentlyContinue
   function Install-Winget([string]$Id, [string]$What) {
     if (-not $winget -and -not $dry) {
@@ -159,6 +177,28 @@ function Install-AIStudioHub {
   }
   if ($vcOk) { Ok "Visual C++ runtime: present (PyTorch needs it)" }
   else { if (-not (Install-Winget "Microsoft.VCRedist.2015+.x64" "the Visual C++ runtime")) { Note "the Visual C++ runtime did not install - PyTorch may fail to load until it is (aka.ms/vs/17/release/vc_redist.x64.exe)" } }
+  # ffmpeg: Voice Studio converts uploaded audio with it and Video Studio's editor exports through it
+  if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { Ok "ffmpeg: present" }
+  else {
+    if (-not (Install-Winget "Gyan.FFmpeg" "ffmpeg")) { Note "ffmpeg did not install - Voice Studio uploads and Video Studio edits need it (winget install Gyan.FFmpeg)" }
+    elseif (-not $dry -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { Note "ffmpeg is installed but not on PATH in this window yet - it is in new windows" }
+  }
+  # llama-server (llama.cpp): Video Studio's optional Omni prompt rewriter runs its model with it. On Linux it is in the
+  # Video Studio image; on Windows the official winget build (Vulkan - runs on NVIDIA and AMD cards) puts it on PATH.
+  if ($skipped["video"]) { }
+  elseif (Get-Command llama-server -ErrorAction SilentlyContinue) { Ok "llama-server: present (Video Studio's Omni prompt rewriter)" }
+  else {
+    if (-not (Install-Winget "ggml.llamacpp" "llama.cpp (llama-server, for Video Studio's Omni prompt rewriter)")) { Note "llama.cpp did not install - Video Studio's Omni prompt rewriter stays off (its Gemma enhancer still works)" }
+  }
+  # Ollama: the hub's assistant and prompt writer plan with a small local model (qwen3:4b) served by Ollama;
+  # the hub uses an Ollama that answers on 127.0.0.1:11434 (on Windows the app, which starts with Windows)
+  $ollamaExe = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+  function Get-Ollama { if (Get-Command ollama -ErrorAction SilentlyContinue) { return (Get-Command ollama).Source }; if (Test-Path $ollamaExe) { return $ollamaExe }; return $null }
+  if (-not $assistant) { Ok "Ollama: skipped (-NoAssistant) - the hub's assistant needs it" }
+  elseif (Get-Ollama) { Ok "Ollama: present" }
+  else {
+    if (-not (Install-Winget "Ollama.Ollama" "Ollama (the assistant's language model server)")) { Note "Ollama did not install - the hub's assistant needs it (winget install Ollama.Ollama, or ollama.com)" }
+  }
 
   # ---- 3. The code ---------------------------------------------------------------
   Say "3/6" "The code"
@@ -236,8 +276,27 @@ for t in TOOLS.values():
     image = @{ bat = "Initialize.bat"; args = "--yes"; nomodels = "--yes --skip-models" }
     tts   = @{ bat = "initialize.bat"; args = ""; nomodels = "-NoModels" }
     video = @{ bat = "initialize.bat"; args = ""; nomodels = "" }                # its model pack comes on first start
-    music = @{ bat = "initialize.bat"; args = ""; nomodels = $null }             # always fetches the YuE2 weights
+    music = @{ bat = "initialize.bat"; args = ""; nomodels = "--no-models" }    # YuE2 weights, helper environments, cover models
     forge = @{ bat = "initialize.bat"; args = "-Essentials -SkipShortcuts"; nomodels = "-NoModels -SkipShortcuts" }   # the hub is the shortcut
+  }
+  # Forge's default checkpoint and LoRA are on Civitai, which needs an API key. Its initializer runs here without a
+  # console (it cannot ask), so the key is found or asked for now and handed over with -CivitaiToken.
+  if ($studios -contains "forge" -and $models) {
+    $fTok = Join-Path $T["forge"].dir "tools\civitai_token.txt"
+    if (-not $CivitaiToken -and (Test-Path $fTok)) { $CivitaiToken = (Get-Content -Raw $fTok).Trim() }
+    if (-not $CivitaiToken) {
+      try { $hs = Get-Content -Raw (Join-Path $Root "data\settings.json") -ErrorAction Stop | ConvertFrom-Json; if ($hs.civitai_token) { $CivitaiToken = "$($hs.civitai_token)".Trim() } } catch {}
+    }
+    if ($CivitaiToken) { Ok "Civitai API key: found (Forge downloads its default checkpoint and LoRA with it)" }
+    elseif ($dry) { Ok "would ask for a Civitai API key (Forge's default checkpoint and LoRA are on Civitai)" }
+    elseif ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+      Write-Host ""
+      Write-Host "      Forge's default checkpoint and LoRA are on Civitai, which needs a free API key" -ForegroundColor Yellow
+      Write-Host "      (civitai.com > Account settings > API Keys). Paste it here, or press Enter to skip:" -ForegroundColor Yellow
+      $k = Read-Host "      Civitai API key"
+      if ($k) { $CivitaiToken = $k.Trim() } else { Note "no key: Forge installs without its default checkpoint - add one later (the hub's Models page, or Forge's Civitai tab)" }
+    } else { Note "no Civitai API key (-CivitaiToken): Forge installs without its default checkpoint" }
+    if ($CivitaiToken) { $inits["forge"].args += " -CivitaiToken $CivitaiToken"; $inits["forge"].nomodels += "" }
   }
   $failed = @()
   foreach ($id in $studios) {
@@ -258,6 +317,23 @@ for t in TOOLS.values():
     $T = Get-Studios
     foreach ($id in $studios) {
       if ($T[$id] -and -not $T[$id].installed -and $failed -notcontains $names[$id]) { Bad "$($names[$id]) is not set up after its initializer - see its messages above"; $failed += $names[$id] }
+    }
+  }
+
+  # A real operation on the card in every studio environment: a PyTorch build without this card's kernels (an RTX 50 card
+  # with a CUDA 12.6 build, say) imports fine and reports CUDA, and fails only here.
+  if (-not $dry -and $gpu.vendor -eq "nvidia") {
+    Write-Host ""; Write-Host "  --- GPU check (a small operation on the card in each studio's Python environment)"
+    $envs = @{ image = @(".venv"); tts = @(".venv"); video = @(".venv"); music = @("YuE\.venv", ".venv-voice", ".venv-sheetsage2"); forge = @("venv") }
+    $probe = "import torch; x = torch.ones(8, device='cuda'); assert float((x * 2).sum()) == 16"
+    foreach ($id in $studios) {
+      foreach ($e in $envs[$id]) {
+        $py = Join-Path $T[$id].dir "$e\Scripts\python.exe"
+        if (-not (Test-Path $py)) { continue }
+        & $py -c $probe 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { Ok "$($names[$id]) ($e): ok" }
+        else { Bad "$($names[$id]) ($e): PyTorch cannot run on $($gpu.name) - update the NVIDIA driver, delete $e and run this again"; if ($failed -notcontains $names[$id]) { $failed += $names[$id] } }
+      }
     }
   }
 
@@ -358,6 +434,27 @@ print(f"{v}|{VARIANTS[v].label}|{sum(FILES[f].size for f in variant_file_ids(v))
           } catch { Note "the download request was not accepted - start it from Video Studio > Models" }
         }
       }
+    }
+  }
+
+  Write-Host ""; Write-Host "  --- Assistant language model"
+  if (-not $assistant) { Ok "skipped (-NoAssistant)" }
+  elseif (-not $models) { Ok "not downloaded (-NoModels) - the hub fetches qwen3:4b (2.5 GB) the first time the assistant is used" }
+  else {
+    $ol = Get-Ollama
+    if (-not $ol -and -not $dry) { Note "Ollama is not installed - the assistant stays off until it is" }
+    else {
+      $olExe = if ($ol) { $ol } else { "ollama" }
+      if (-not $dry -and -not (Get-Json "http://127.0.0.1:11434/api/version" 2)) {
+        Start-Process -FilePath $olExe -ArgumentList "serve" -WindowStyle Hidden | Out-Null
+        for ($n = 0; $n -lt 30 -and -not (Get-Json "http://127.0.0.1:11434/api/version" 2); $n++) { Start-Sleep -Seconds 1 }
+      }
+      $tags = Get-Json "http://127.0.0.1:11434/api/tags" 5
+      if ($tags -and @($tags.models | Where-Object { $_.name -in @("qwen3:4b", "qwen3:4b:latest") }).Count) { Ok "qwen3:4b: present" }
+      elseif (Step "`"$olExe`" pull qwen3:4b" { & $olExe pull qwen3:4b }) {
+        if (-not $dry) { Ok "qwen3:4b ready (2.5 GB) - the assistant loads it only while it plans, then frees the GPU" }
+      }
+      else { Note "qwen3:4b did not download - the hub fetches it the first time the assistant is used" }
     }
   }
 

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -32,11 +34,41 @@ async def _up() -> bool:
         return False
 
 
+def _native_ollama() -> str | None:
+    """An installed Ollama (Windows: the winget / installer copy under %LOCALAPPDATA%), or None."""
+    exe = shutil.which("ollama")
+    if exe:
+        return exe
+    local = os.environ.get("LOCALAPPDATA")
+    if local and (p := Path(local) / "Programs" / "Ollama" / "ollama.exe").is_file():
+        return str(p)
+    return None
+
+
+def _start_native(exe: str) -> None:
+    env = {**os.environ, "OLLAMA_KEEP_ALIVE": "0", "OLLAMA_NUM_PARALLEL": "1", "OLLAMA_MAX_LOADED_MODELS": "1",
+           "OLLAMA_HOST": "127.0.0.1:11434"}
+    flags = 0
+    if sys.platform == "win32":
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen([exe, "serve"], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=sys.platform != "win32")
+
+
 async def ensure_running(model: str) -> None:
-    """Start the container (created on first use) and pull the model if it is missing."""
+    """Start the language model server and pull the model if it is missing. Order: an Ollama already answering, an
+    installed Ollama (how it runs on Windows, where the studios run without Docker), else the container (created on
+    first use)."""
+    if not await _up() and sys.platform == "win32" and (exe := _native_ollama()):
+        await asyncio.to_thread(_start_native, exe)
+        for _ in range(30):
+            if await _up():
+                break
+            await asyncio.sleep(1)
     if not await _up():
         if not shutil.which("docker"):
-            raise RuntimeError("Docker is needed for the assistant's language model")
+            raise RuntimeError("Ollama is needed for the assistant's language model - re-run the installer"
+                               if sys.platform == "win32" else "Docker is needed for the assistant's language model")
         st = await asyncio.to_thread(_docker, "inspect", "-f", "{{.State.Status}}", CONTAINER)
         if st.returncode == 0:
             await asyncio.to_thread(_docker, "start", CONTAINER)

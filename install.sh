@@ -11,6 +11,8 @@
 #   --no-models      environments only: no studio downloads its models (Video Studio's pack included)
 #   --no-browser     do not open the browser at the end
 #   --no-desktop     no app-menu entry
+#   --no-assistant   do not fetch the assistant's language model (qwen3:4b in the ai-assistant-llm Ollama container)
+#   --civitai-token KEY  Civitai API key for Forge's default checkpoint and LoRA (or AI_HUB_CIVITAI_TOKEN; asked if missing)
 #   --autostart      start the hub when you log in (a systemd user service; undo: linux/install-autostart.sh --remove)
 #   --gpu-unlock     NVIDIA RTX 20/30/40 only, EXPERIMENTAL: also install gpu-unlock (faster BF16), needs a reboot.
 #                    On an RTX 3070 Laptop it made every shutdown kernel-panic; Video Studio's H3 path is INT8 anyway.
@@ -18,7 +20,8 @@
 #
 # Steps: 1 checks and graphics card  2 system packages (+ NVIDIA driver)  3 the code
 #        4 Docker (+ NVIDIA Container Toolkit)  5 the studios, each with its own linux/initialize.sh
-#        6 the hub (linux/initialize.sh)  7 start the hub + Video Studio's model pack  [8 gpu-unlock]
+#        6 the hub (linux/initialize.sh)  7 start the hub, Video Studio's model pack and the assistant's
+#        language model  [8 gpu-unlock]
 # Safe to re-run: every step checks first and skips what is done, and so do the studios'
 # initializers. Studio containers that are running are never restarted (their boot tests are skipped).
 #
@@ -29,11 +32,11 @@ set -uo pipefail
 REPO_URL="https://github.com/jrlabanza/ai-studio-hub.git"
 RAW_URL="https://raw.githubusercontent.com/jrlabanza/ai-studio-hub/main"
 TOOL_IDS=(image tts video music forge)
-DIR=""; DRY=0; START=1; MODELS=1; BROWSER=1; DESKTOP=1; UNLOCK=0; AUTOSTART=0
+DIR=""; DRY=0; START=1; MODELS=1; BROWSER=1; DESKTOP=1; UNLOCK=0; AUTOSTART=0; ASSISTANT=1; CIVITAI="${AI_HUB_CIVITAI_TOKEN:-}"
 declare -A SKIP=()
 
-usage(){ sed -n '2,21p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \?//' | grep . \
-  || echo "usage: install.sh [--dir DIR] [--skip TOOL] [--no-start] [--no-models] [--no-browser] [--no-desktop] [--autostart] [--gpu-unlock] [--dry-run]"; }
+usage(){ sed -n '2,24p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \?//' | grep . \
+  || echo "usage: install.sh [--dir DIR] [--skip TOOL] [--no-start] [--no-models] [--no-browser] [--no-desktop] [--no-assistant] [--autostart] [--gpu-unlock] [--dry-run]"; }
 add_skip(){ # accepts the ids and the studio names people use
   local t
   for t in ${1//,/ }; do
@@ -48,8 +51,9 @@ while (( $# )); do
   case $1 in
     --dir) DIR="${2:-}"; shift ;; --dir=*) DIR="${1#*=}" ;;
     --skip) add_skip "${2:-}"; shift ;; --skip=*) add_skip "${1#*=}" ;;
-    --no-start) START=0 ;; --no-models) MODELS=0 ;; --no-browser) BROWSER=0 ;; --no-desktop) DESKTOP=0 ;;
+    --no-start) START=0 ;; --no-models) MODELS=0 ;; --no-browser) BROWSER=0 ;; --no-desktop) DESKTOP=0 ;; --no-assistant) ASSISTANT=0 ;;
     --gpu-unlock) UNLOCK=1 ;; --autostart) AUTOSTART=1 ;; --dry-run|-n) DRY=1 ;;
+    --civitai-token) CIVITAI="${2:-}"; shift ;; --civitai-token=*) CIVITAI="${1#*=}" ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1 (--help lists them)" >&2; exit 1 ;;
   esac; shift
@@ -110,6 +114,13 @@ if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
   [[ $GPU_CC =~ ^[0-9]+\.[0-9]+$ ]] || GPU_CC=""
   GPU_NAME=$(echo "$GPU_NAME" | xargs); GPU_VRAM=$(echo "$GPU_VRAM" | tr -dc '0-9'); GPU_DRIVER=$(echo "$GPU_DRIVER" | xargs); GPU_BUS=$(echo "$GPU_BUS" | xargs)
   ok "graphics card: $GPU_NAME, $(( (${GPU_VRAM:-0} + 512) / 1024 )) GB VRAM${GPU_CC:+, compute capability $GPU_CC}, driver $GPU_DRIVER -> CUDA containers"
+  # the studios' images are CUDA 13 builds: the host driver must be 580 or newer (RTX 50 cards need 570+ in any case)
+  drv_major=${GPU_DRIVER%%.*}; [[ $drv_major =~ ^[0-9]+$ ]] || drv_major=0
+  if (( drv_major < 580 )); then
+    bad "NVIDIA driver $GPU_DRIVER is too old for the studios' CUDA 13 containers - they need 580 or newer"
+    (( APT )) && command -v ubuntu-drivers >/dev/null && note "update it with:  sudo ubuntu-drivers list   then  sudo apt install nvidia-driver-580  (or newer), reboot"
+    (( DRY )) || die "update the NVIDIA driver to 580 or newer, reboot, and run this again"
+  fi
 elif (( NV_PCI )); then
   GPU_VENDOR=nvidia-nodriver
   note "graphics card: NVIDIA, but its driver is not working yet (nvidia-smi does not answer) - step 2 installs it"
@@ -125,6 +136,7 @@ say 2/7 "System packages"
 pkgs=()
 command -v git >/dev/null || pkgs+=(git)
 command -v curl >/dev/null || pkgs+=(curl)
+command -v ffmpeg >/dev/null || pkgs+=(ffmpeg)   # the hub's library previews; the studios bring their own in their images
 [[ -d /etc/ssl/certs ]] || pkgs+=(ca-certificates)
 PY=""
 for c in python3.13 python3.12 python3.11 python3.14 python3; do
@@ -140,7 +152,7 @@ if (( ${#pkgs[@]} )); then
   run sudo apt-get install -y -q "${pkgs[@]}" || die "could not install ${pkgs[*]}"
   [[ -n $PY ]] || PY=python3
 else
-  ok "git, curl, $PY with venv: present"
+  ok "git, curl, ffmpeg, $PY with venv: present"
 fi
 REBOOT_FOR_DRIVER=0
 if [[ $GPU_VENDOR == nvidia-nodriver ]]; then
@@ -277,6 +289,24 @@ if [[ -n ${running// /} ]]; then
 fi
 STUDIO_ARGS=(--no-desktop)            # the hub is the one app-menu entry
 (( MODELS )) || STUDIO_ARGS+=(--no-models)
+# Forge's default checkpoint and LoRA are on Civitai, which needs an API key; its initializer runs below without a
+# terminal, so the key is found or asked for now and handed over in CIVITAI_TOKEN (linux/initialize.sh reads it)
+if [[ " ${studios[*]} " == *" forge "* ]] && (( MODELS )); then
+  [[ -z $CIVITAI && -f ${T_DIR[forge]}/tools/civitai_token.txt ]] && CIVITAI=$(tr -d '\r\n' < "${T_DIR[forge]}/tools/civitai_token.txt")
+  if [[ -n $CIVITAI ]]; then ok "Civitai API key: found (Forge downloads its default checkpoint and LoRA with it)"
+  elif (( DRY )); then ok "would ask for a Civitai API key (Forge's default checkpoint and LoRA are on Civitai)"
+  elif [[ -r /dev/tty ]]; then
+    printf '      Forge'"'"'s default checkpoint and LoRA are on Civitai, which needs a free API key\n      (civitai.com > Account settings > API Keys). Paste it, or press Enter to skip: '
+    read -r CIVITAI </dev/tty || CIVITAI=""
+    [[ -n $CIVITAI ]] || note "no key: Forge installs without its default checkpoint - add one later (the hub's Models page)"
+  else note "no Civitai API key (--civitai-token): Forge installs without its default checkpoint"; fi
+  if [[ -n $CIVITAI ]]; then
+    export CIVITAI_TOKEN="$CIVITAI"
+    # kept for the next run and for Forge's own initializer (git ignores the file), like the Windows installer
+    tf="${T_DIR[forge]}/tools/civitai_token.txt"
+    if (( ! DRY )) && [[ -d ${T_DIR[forge]}/tools && ! -f $tf ]]; then (umask 077; printf '%s\n' "$CIVITAI" > "$tf"); fi
+  fi
+fi
 FAILED=()
 for id in "${studios[@]}"; do
   init="${T_DIR[$id]}/linux/initialize.sh"
@@ -394,6 +424,30 @@ echo; echo "  --- Video Studio model pack"
 if [[ $GPU_VENDOR == nvidia ]]; then ok "card: $GPU_NAME${GPU_CC:+ (compute capability $GPU_CC)}, $(( (RAM_MB + 512) / 1024 )) GB RAM"
 elif [[ $GPU_VENDOR == amd ]]; then ok "card: $GPU_NAME (ROCm), $(( (RAM_MB + 512) / 1024 )) GB RAM"; fi
 video_models
+
+# The assistant's language model: the same container the hub creates on first use (hub/assistant/runtime.py:
+# ai-assistant-llm, ollama/ollama, models in ~/.cache/ai-tools/ollama), with qwen3:4b pulled now so the first plan does
+# not wait for a 2.5 GB download. The container is stopped again - the hub starts it when the assistant is used.
+assistant_model(){
+  echo; echo "  --- Assistant language model"
+  if (( ! ASSISTANT )); then ok "skipped (--no-assistant) - the hub fetches it the first time the assistant is used"; return 0; fi
+  if (( ! MODELS )); then ok "not downloaded (--no-models) - the hub fetches qwen3:4b (2.5 GB) the first time the assistant is used"; return 0; fi
+  local name=ai-assistant-llm dir="$HOME/.cache/ai-tools/ollama" gpu=() was_running=0
+  [[ $GPU_VENDOR == nvidia ]] && gpu=(--gpus all)
+  if "${DK[@]}" inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -q true; then was_running=1
+  elif "${DK[@]}" inspect "$name" >/dev/null 2>&1; then run "${DK[@]}" start "$name" >/dev/null || { note "could not start $name"; return 0; }
+  else
+    run mkdir -p "$dir"
+    run "${DK[@]}" run -d --name "$name" "${gpu[@]}" -e OLLAMA_KEEP_ALIVE=0 -e OLLAMA_NUM_PARALLEL=1 -e OLLAMA_MAX_LOADED_MODELS=1       -p 127.0.0.1:11434:11434 -v "$dir:/root/.ollama" --restart unless-stopped ollama/ollama:latest >/dev/null       || { note "could not create the $name container - the hub creates it the first time the assistant is used"; return 0; }
+  fi
+  if (( DRY )); then run "${DK[@]}" exec "$name" ollama pull qwen3:4b; return 0; fi
+  for _ in $(seq 1 30); do curl -sf -o /dev/null --max-time 2 http://127.0.0.1:11434/api/version && break; sleep 1; done
+  if "${DK[@]}" exec "$name" ollama list 2>/dev/null | grep -q '^qwen3:4b'; then ok "qwen3:4b: present"
+  elif "${DK[@]}" exec "$name" ollama pull qwen3:4b; then ok "qwen3:4b ready (2.5 GB) - the assistant loads it only while it plans, then frees the GPU"
+  else note "qwen3:4b did not download - the hub fetches it the first time the assistant is used"; fi
+  (( was_running )) || "${DK[@]}" stop "$name" >/dev/null 2>&1 || true
+}
+assistant_model
 
 # --- 8. gpu-unlock (only with --gpu-unlock) ----------------------------------
 REBOOT_FOR_UNLOCK=0
