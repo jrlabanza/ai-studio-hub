@@ -1029,7 +1029,7 @@ class ForgeTool(ToolSpec):
                 # its fp16 kernel crashed Forge; Comfy-Kitchen rendered them clean at about 5% less speed. fp16
                 # accumulation: Anima 25.5 -> 22.0 s and SDXL 12.6 -> 10.6 s per image there. Older cards keep
                 # SageAttention, which works on them.
-                argv += ["--use-ck-attention", "--fast-fp16"]
+                argv += ["--use-ck-attention", "--fast-fp16", "--fast-fp8"]   # --fast-fp8: FP8 matmul, only for a model stored in fp8
         else:
             argv += ["--use-pytorch-cross-attention"]                              # ROCm: SDPA, no SageAttention / xformers
         if (tool_dir / "tools" / ".portable").is_file():
