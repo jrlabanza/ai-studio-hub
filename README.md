@@ -33,7 +33,7 @@ container, the `linux/` packaging every studio ships).
   for a direct link or a HuggingFace file (the link, or the repo and path). An existing record is never replaced.
   Forge's LoRA picker reads the base model from the Civitai record to show only the LoRAs that fit the loaded model.
 * **Forge on RTX 50 cards.** On an NVIDIA card with CUDA compute capability 12 or higher (RTX 50 / Blackwell) the hub
-  starts Forge with `--use-ck-attention --fast-fp16` (Comfy-Kitchen INT8 attention, which renders clean where
+  starts Forge with `--use-ck-attention --fast-fp16 --fast-fp8` (FP8 matmul for a model stored in FP8, as the SDXL preset is: 10.4 -> 9.7 s per image) (Comfy-Kitchen INT8 attention, which renders clean where
   SageAttention 2 gave black images, and fp16 accumulation, 14-16 % faster). Other cards are started as before.
 * **Forge opens inside the hub only.** Forge started by the hub no longer opens a browser tab of its own.
 * **Video Studio finds a shared model folder.** The Video tool honours `VIDEOGEN_MODELS_DIR`, so the hub sees MiniMax H3
