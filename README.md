@@ -110,7 +110,9 @@ What it does, in order:
    - **Forge**: its default checkpoint and LoRA come from Civitai, which needs an API key (free, civitai.com → Account
      settings → API keys). The installer uses `forge/tools/civitai_token.txt` if it is there, else asks once (or
      `-CivitaiToken KEY` / `--civitai-token KEY`) and saves it there - git ignores that file. Without a key Forge is set
-     up without those two models.
+     up without those two models. Its setup also clones the two extensions kept in their own repositories (Forge
+     Couple, Reference Image) and downloads the models Reference Image and Character Sheet use (about 4.3 GB from
+     Hugging Face, no key needed).
 
    After the studios, the Windows installer runs a small calculation on the GPU in every studio environment (not just
    `torch.cuda.is_available()`), so a PyTorch build that cannot run on the card shows up here, not at the first render.
