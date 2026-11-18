@@ -111,7 +111,8 @@ What it does, in order:
      settings → API keys). The installer uses `forge/tools/civitai_token.txt` if it is there, else asks once (or
      `-CivitaiToken KEY` / `--civitai-token KEY`) and saves it there - git ignores that file. Without a key Forge is set
      up without those two models. Its setup also clones the five extensions kept in their own repositories (Forge
-     Couple, Reference Image, IP-Adapter compat, LoRA Trainer, Prompt Enhancer) and downloads the models Reference Image and Character Sheet use (about 4.3 GB from
+     Couple, Reference Image, IP-Adapter compat, LoRA Trainer, Prompt Enhancer), on Windows with an NVIDIA card builds the
+     LoRA Trainer's training environment (about 8 GB, `-NoTrainer` skips it) and downloads the models Reference Image and Character Sheet use (about 4.3 GB from
      Hugging Face, no key needed).
 
    After the studios, the Windows installer runs a small calculation on the GPU in every studio environment (not just
@@ -143,6 +144,7 @@ What it does, in order:
 | `--no-start` | `-NoStart` | set everything up, do not start the hub |
 | `--no-models` | `-NoModels` | environments only, where a studio's setup allows it (Video Studio's pack and the assistant's model included) |
 | `--no-assistant` | `-NoAssistant` | no Ollama and no assistant model |
+| | `-NoTrainer` | no training environment for Forge's LoRA Trainer (about 8 GB; Windows only - Linux does not set it up yet) |
 | `--civitai-token KEY` | `-CivitaiToken KEY` | Forge's Civitai API key (saved to `forge/tools/civitai_token.txt`) |
 | `--no-browser` | `-NoBrowser` | do not open the browser |
 | `--no-desktop` | | no app-menu entry |
@@ -152,7 +154,7 @@ What it does, in order:
 
 With the one-liners, options go after `bash -s --` on Linux (`curl -fsSL …/install.sh | bash -s -- --skip forge`); in
 PowerShell use `& ([scriptblock]::Create((irm …/install.ps1))) -Skip forge`, or set `AI_HUB_SKIP=forge`,
-`AI_HUB_DIR`, `AI_HUB_NO_START=1`, `AI_HUB_NO_MODELS=1`, `AI_HUB_NO_ASSISTANT=1`, `AI_HUB_CIVITAI_TOKEN=…`,
+`AI_HUB_DIR`, `AI_HUB_NO_START=1`, `AI_HUB_NO_MODELS=1`, `AI_HUB_NO_ASSISTANT=1`, `AI_HUB_NO_TRAINER=1`, `AI_HUB_CIVITAI_TOKEN=…`,
 `AI_HUB_DRY_RUN=1` before `irm … | iex` (`AI_HUB_CIVITAI_TOKEN` works for `install.sh` too).
 
 **gpu-unlock (Linux, opt-in, experimental).** GeForce cards run FP16 / BF16 tensor math at half the rate of the same

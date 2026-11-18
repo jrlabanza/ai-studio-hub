@@ -11,12 +11,13 @@
     -NoModels      environments only, where a studio's setup allows it (Video Studio's pack included)
     -NoBrowser     do not open the browser at the end
     -NoAssistant   no Ollama and no assistant model (the hub's assistant and prompt writer need them)
+    -NoTrainer     no training environment for Forge's LoRA Trainer (about 8 GB; its setup_venv.bat does it later)
     -CivitaiToken KEY  a Civitai API key (civitai.com > Account settings > API Keys): Forge's default checkpoint and
                    LoRA are on Civitai. Without one the installer asks; it also reuses Forge's tools\civitai_token.txt
     -DryRun        print every step it would take and change nothing
 
   With "irm | iex" the options can also come from environment variables: AI_HUB_DIR, AI_HUB_SKIP,
-  AI_HUB_NO_START=1, AI_HUB_NO_MODELS=1, AI_HUB_NO_BROWSER=1, AI_HUB_NO_ASSISTANT=1, AI_HUB_DRY_RUN=1,
+  AI_HUB_NO_START=1, AI_HUB_NO_MODELS=1, AI_HUB_NO_BROWSER=1, AI_HUB_NO_ASSISTANT=1, AI_HUB_NO_TRAINER=1, AI_HUB_DRY_RUN=1,
   AI_HUB_CIVITAI_TOKEN=KEY.
 
   Steps: 1 checks and graphics card  2 Git, Python 3.11, the VC++ runtime, ffmpeg, llama.cpp and Ollama (winget)  3 the code
@@ -33,6 +34,7 @@ param(
   [switch]$NoModels,
   [switch]$NoBrowser,
   [switch]$NoAssistant,
+  [switch]$NoTrainer,
   [string]$CivitaiToken = "",
   [switch]$DryRun
 )
@@ -56,6 +58,7 @@ function Install-AIStudioHub {
   $models = -not ([bool]$NoModels -or $env:AI_HUB_NO_MODELS -eq "1")
   $browser = -not ([bool]$NoBrowser -or $env:AI_HUB_NO_BROWSER -eq "1")
   $assistant = -not ([bool]$NoAssistant -or $env:AI_HUB_NO_ASSISTANT -eq "1")
+  $trainer = -not ([bool]$NoTrainer -or $env:AI_HUB_NO_TRAINER -eq "1")
   if (-not $CivitaiToken -and $env:AI_HUB_CIVITAI_TOKEN) { $CivitaiToken = $env:AI_HUB_CIVITAI_TOKEN }
   $skipped = @{}
   foreach ($s in ($skipList -join ",") -split "[,\s]+") {
@@ -297,6 +300,9 @@ for t in TOOLS.values():
       if ($k) { $CivitaiToken = $k.Trim() } else { Note "no key: Forge installs without its default checkpoint - add one later (the hub's Models page, or Forge's Civitai tab)" }
     } else { Note "no Civitai API key (-CivitaiToken): Forge installs without its default checkpoint" }
     if ($CivitaiToken) { $inits["forge"].args += " -CivitaiToken $CivitaiToken"; $inits["forge"].nomodels += "" }
+  }
+  if ($inits.ContainsKey("forge") -and -not $trainer) {     # the LoRA Trainer's training environment (about 8 GB)
+    $inits["forge"].args += " -NoTrainer"; $inits["forge"].nomodels += " -NoTrainer"
   }
   $failed = @()
   foreach ($id in $studios) {
